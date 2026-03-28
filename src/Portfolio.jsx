@@ -685,14 +685,19 @@ function ExplodingText({ text, tag: Tag = 'span', chaos, style }) {
     delay: Math.random() * 0.3,
   })));
 
+  // Extract gradient styles that need to be on each letter
+  const { background, WebkitBackgroundClip, WebkitTextFillColor, ...parentStyle } = style || {};
+  const letterGradient = (background && WebkitBackgroundClip) ? { background, WebkitBackgroundClip, WebkitTextFillColor } : {};
+
   return (
-    <Tag style={{ ...style, display: 'inline-block', whiteSpace: 'pre-wrap' }}>
+    <Tag style={{ ...parentStyle, display: 'inline-block', whiteSpace: 'pre-wrap' }}>
       {letters.map((l, i) => {
         const o = offsets.current[i];
         const intensity = Math.min(chaos, 1);
         return (
           <span key={i} style={{
             display: 'inline-block',
+            ...letterGradient,
             transform: intensity > 0.05
               ? `translate(${o.x * intensity}px, ${o.y * intensity}px) rotate(${o.r * intensity}deg)`
               : 'translate(0,0) rotate(0deg)',
