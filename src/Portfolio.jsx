@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer } from "recharts";
+import { Link } from "react-router-dom";
 import { X, ExternalLink, Github, Mail, Linkedin, Phone, ChevronDown, ArrowRight, Moon, Sun, Filter, Code2, Cpu, Database, Globe, Shield, Terminal, Award, GraduationCap, Briefcase, Calendar, Zap } from "lucide-react";
 
 // ===== R3F AVATAR HEAD MODEL =====
@@ -1095,6 +1096,7 @@ export default function Portfolio() {
           {['about','experience','projects','skills','certifications','contact'].map(s=>(
             <a key={s} href={`#${s}`} style={{ fontFamily:"'Space Mono',monospace", fontSize:11, letterSpacing:'0.15em', textTransform:'uppercase', color:activeSection===s?accent:textDim, textDecoration:'none', padding:'4px 0', transition:'color 0.3s', borderBottom:activeSection===s?`1px solid ${accent}`:'1px solid transparent' }}>{s==='certifications'?'Certs':s}</a>
           ))}
+          <Link to="/blog" style={{ fontFamily:"'Space Mono',monospace", fontSize:11, letterSpacing:'0.15em', textTransform:'uppercase', color:textDim, textDecoration:'none', padding:'4px 0', transition:'color 0.3s', borderBottom:'1px solid transparent' }}>Blog</Link>
           <button onClick={()=>setDark(!dark)} style={{ background:'rgba(255,255,255,0.06)', border:`1px solid ${border}`, borderRadius:'50%', width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:text }}>{dark?<Sun size={15}/>:<Moon size={15}/>}</button>
         </div>
       </nav>
