@@ -1,324 +1,150 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { useGLTF } from "@react-three/drei";
 import * as THREE from "three";
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer } from "recharts";
 import { Link } from "react-router-dom";
 import { X, ExternalLink, Github, Mail, Linkedin, Phone, ChevronDown, ArrowRight, Moon, Sun, Filter, Code2, Cpu, Database, Globe, Shield, Terminal, Award, GraduationCap, Briefcase, Calendar, Zap } from "lucide-react";
 
-// ===== R3F AVATAR HEAD MODEL =====
+// ===== R3F AVATAR (Ready Player Me model, hosted locally at /public/avatar.glb) =====
 const SECTION_ROT = { home:0, about:0.4, experience:0.25, projects:-0.4, skills:-0.25, certifications:-0.15, contact:0 };
+const AVATAR_URL = "/avatar.glb";
 
-function HeadModel({ chaos, activeSection }) {
+function AvatarModel({ chaos, activeSection }) {
   const groupRef = useRef();
-  const meshRefs = useRef([]);
-  const fillLightRef = useRef();
-  const bottomLightRef = useRef();
-  const physicsInit = useRef(false);
-  const physics = useRef([]);
+  const baseRot = useRef(null);
+  const blink = useRef({ next: 2.5, meshes: [] });
+  const { scene } = useGLTF(AVATAR_URL);
 
-  const mr = (i) => (el) => { if (el) meshRefs.current[i] = el; };
+  const bones = useMemo(() => ({
+    head: scene.getObjectByName("Head"),
+    neck: scene.getObjectByName("Neck"),
+    spine: scene.getObjectByName("Spine"),
+  }), [scene]);
 
-  // Original positions/rotations stored once
-  const originals = useRef([]);
-
-  // Store original transforms after first render
   useEffect(() => {
-    if (originals.current.length > 0) return;
-    // Wait a frame for refs to populate
-    requestAnimationFrame(() => {
-      meshRefs.current.forEach((m, i) => {
-        if (m) {
-          originals.current[i] = {
-            px: m.position.x, py: m.position.y, pz: m.position.z,
-            rx: m.rotation.x, ry: m.rotation.y, rz: m.rotation.z,
-          };
-        }
-      });
-      // Init explosion physics
-      physics.current = meshRefs.current.map((_, i) => {
-        const force = i < 38 ? (i < 1 ? 0.3 : i < 10 ? 1.5 : 2.0) : 3.0;
-        return {
-          vx: (Math.random() - 0.5) * 8 * force,
-          vy: (Math.random() * 6 + 3) * force,
-          vz: (Math.random() - 0.5) * 8 * force,
-          rx: (Math.random() - 0.5) * 6, ry: (Math.random() - 0.5) * 6, rz: (Math.random() - 0.5) * 6,
-          ox: 0, oy: 0, oz: 0, orx: 0, ory: 0, orz: 0,
-        };
-      });
-      physicsInit.current = true;
+    const blinkMeshes = [];
+    scene.traverse((o) => {
+      if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; }
+      if (o.morphTargetDictionary && o.morphTargetDictionary.eyeBlinkLeft !== undefined) blinkMeshes.push(o);
     });
-  }, []);
+    blink.current.meshes = blinkMeshes;
+    const { head, neck, spine } = bones;
+    baseRot.current = {
+      hx: head?.rotation.x ?? 0, hy: head?.rotation.y ?? 0,
+      nx: neck?.rotation.x ?? 0, ny: neck?.rotation.y ?? 0,
+      sy: spine?.rotation.y ?? 0,
+    };
+  }, [scene, bones]);
 
   useFrame((state) => {
-    if (!groupRef.current) return;
+    const g = groupRef.current;
+    if (!g) return;
     const t = state.clock.elapsedTime;
-    const c = chaos;
     const ptr = state.pointer;
 
-    // Floating
-    groupRef.current.position.y = Math.sin(t * 0.8) * 0.08;
+    // Floating + section-directed turn blended with cursor
+    g.position.y = Math.sin(t * 0.8) * 0.08;
+    const targetRotY = (SECTION_ROT[activeSection] || 0) + ptr.x * 0.25;
+    g.rotation.y += (targetRotY - g.rotation.y) * 0.06;
 
-    // Section-directed rotation + cursor blend
-    const sectionY = SECTION_ROT[activeSection] || 0;
-    const targetRotY = sectionY + ptr.x * 0.3;
-    const targetRotX = -ptr.y * 0.2;
-    groupRef.current.rotation.y += (targetRotY - groupRef.current.rotation.y) * 0.06;
-    groupRef.current.rotation.x += (targetRotX - groupRef.current.rotation.x) * 0.06;
-
-    // Rings rotation (indices 38-39)
-    const ring1 = meshRefs.current[38];
-    const ring2 = meshRefs.current[39];
-    if (ring1) ring1.rotation.z = t * 0.4;
-    if (ring2) ring2.rotation.z = -t * 0.3;
-
-    // Orbital dots (indices 40-42)
-    const dot1 = meshRefs.current[40];
-    const dot2 = meshRefs.current[41];
-    const dot3 = meshRefs.current[42];
-    if (dot1) dot1.position.set(Math.cos(t * 1.2) * 2.0, Math.sin(t * 1.2) * 0.8, Math.sin(t * 1.2) * 2.0);
-    if (dot2) dot2.position.set(Math.cos(t * 0.9 + 2) * 2.3, Math.sin(t * 0.9 + 2) * 1.0, Math.sin(t * 0.9 + 2) * 2.3);
-    if (dot3) dot3.position.set(Math.cos(t * 1.5 + 4) * 1.8, Math.sin(t * 1.5 + 4) * 1.2, Math.sin(t * 1.5 + 4) * 1.8);
-
-    if (!physicsInit.current || originals.current.length === 0) return;
-
-    // Explosion / snap-back for physical parts (0-37)
-    if (c > 0.02) {
-      meshRefs.current.forEach((part, i) => {
-        if (!part || !physics.current[i] || !originals.current[i]) return;
-        const ev = physics.current[i];
-        const orig = originals.current[i];
-        ev.ox += ev.vx * c * 0.15; ev.oy += ev.vy * c * 0.2; ev.oz += ev.vz * c * 0.15;
-        ev.orx += ev.rx * c * 0.08; ev.ory += ev.ry * c * 0.08; ev.orz += ev.rz * c * 0.08;
-        const wx = Math.sin(t * (1 + i * 0.3)) * c * 0.3;
-        const wy = Math.cos(t * (0.8 + i * 0.2)) * c * 0.3;
-        part.position.set(orig.px + ev.ox + wx, orig.py + ev.oy + wy, orig.pz + ev.oz);
-        part.rotation.set(orig.rx + ev.orx, orig.ry + ev.ory, orig.rz + ev.orz);
-      });
-      if (fillLightRef.current) fillLightRef.current.intensity = 0.3 + Math.sin(t * 4) * c * 0.5;
-      if (bottomLightRef.current) bottomLightRef.current.intensity = 0.3 + Math.cos(t * 3) * c * 0.4;
-    } else {
-      // Snap back physical parts only (0-37)
-      for (let i = 0; i < 38; i++) {
-        const part = meshRefs.current[i];
-        if (!part || !physics.current[i] || !originals.current[i]) continue;
-        const ev = physics.current[i];
-        const orig = originals.current[i];
-        ev.ox *= 0.88; ev.oy *= 0.88; ev.oz *= 0.88;
-        ev.orx *= 0.88; ev.ory *= 0.88; ev.orz *= 0.88;
-        part.position.set(orig.px + ev.ox, orig.py + ev.oy, orig.pz + ev.oz);
-        part.rotation.set(orig.rx + ev.orx, orig.ry + ev.ory, orig.rz + ev.orz);
+    // Head & neck follow the cursor on top of the idle animation
+    const base = baseRot.current;
+    if (base) {
+      const { head, neck, spine } = bones;
+      if (head) {
+        head.rotation.x += (base.hx - ptr.y * 0.35 - head.rotation.x) * 0.12;
+        head.rotation.y += (base.hy + ptr.x * 0.45 - head.rotation.y) * 0.12;
       }
-      if (fillLightRef.current) fillLightRef.current.intensity = 0.3;
-      if (bottomLightRef.current) bottomLightRef.current.intensity = 0.3;
+      if (neck) {
+        neck.rotation.x += (base.nx - ptr.y * 0.12 - neck.rotation.x) * 0.1;
+        neck.rotation.y += (base.ny + ptr.x * 0.18 - neck.rotation.y) * 0.1;
+      }
+      if (spine) spine.rotation.y += (base.sy + ptr.x * 0.08 - spine.rotation.y) * 0.08;
+    }
+
+    // Procedural blink via eyeBlink morph targets (~every 2-5s)
+    const b = blink.current;
+    const dt = t - b.next;
+    if (dt > 0.24) {
+      b.next = t + 2 + Math.random() * 3;
+    } else if (dt > 0) {
+      const v = dt < 0.12 ? dt / 0.12 : 1 - (dt - 0.12) / 0.12;
+      for (const m of b.meshes) {
+        m.morphTargetInfluences[m.morphTargetDictionary.eyeBlinkLeft] = v;
+        m.morphTargetInfluences[m.morphTargetDictionary.eyeBlinkRight] = v;
+      }
+    }
+
+    // Gravity anomaly: glitch shake (skinned mesh can't explode like the old primitive head)
+    if (chaos > 0.02) {
+      g.position.x = (Math.random() - 0.5) * chaos * 0.22;
+      g.position.z = (Math.random() - 0.5) * chaos * 0.12;
+      g.rotation.z = (Math.random() - 0.5) * chaos * 0.1;
+    } else {
+      g.position.x *= 0.85; g.position.z *= 0.85; g.rotation.z *= 0.85;
     }
   });
 
   return (
-    <>
-      <ambientLight intensity={0.5} />
-      <directionalLight position={[3, 4, 5]} intensity={0.8} castShadow />
-      <directionalLight ref={fillLightRef} position={[-3, 1, 3]} intensity={0.3} color="#00e5ff" />
-      <directionalLight position={[0, 2, -3]} intensity={0.4} color="#7c4dff" />
-      <pointLight ref={bottomLightRef} position={[0, -3, 2]} intensity={0.3} color="#00e5ff" distance={10} />
+    <group ref={groupRef}>
+      <primitive object={scene} position={[0, -5.5, 0]} scale={3.6} />
+    </group>
+  );
+}
+useGLTF.preload(AVATAR_URL);
 
-      <group ref={groupRef}>
-        {/* 0: Head */}
-        <mesh ref={mr(0)} position={[0, 0.2, 0]} castShadow>
-          <sphereGeometry args={[1.1, 32, 32]} />
-          <meshPhongMaterial color="#d4a574" shininess={40} />
-        </mesh>
-        {/* 1: Hair top */}
-        <mesh ref={mr(1)} position={[0, 0.35, 0]}>
-          <sphereGeometry args={[1.18, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.55]} />
-          <meshPhongMaterial color="#1a1a2e" shininess={60} flatShading />
-        </mesh>
-        {/* 2: Hair left */}
-        <mesh ref={mr(2)} position={[-1.0, 0.1, 0.15]} scale={[0.6, 1.3, 0.9]}>
-          <sphereGeometry args={[0.35, 12, 8]} />
-          <meshPhongMaterial color="#1a1a2e" shininess={60} flatShading />
-        </mesh>
-        {/* 3: Hair right */}
-        <mesh ref={mr(3)} position={[1.0, 0.1, 0.15]} scale={[0.6, 1.3, 0.9]}>
-          <sphereGeometry args={[0.35, 12, 8]} />
-          <meshPhongMaterial color="#1a1a2e" shininess={60} flatShading />
-        </mesh>
-        {/* 4: Hair back */}
-        <mesh ref={mr(4)} position={[0, 0.3, -0.25]} scale={[1.05, 1.1, 0.9]}>
-          <sphereGeometry args={[1.1, 16, 12]} />
-          <meshPhongMaterial color="#1a1a2e" shininess={60} flatShading />
-        </mesh>
-        {/* 5-9: Hair fringes */}
-        {[0,1,2,3,4].map(i => {
-          const angle = -0.6 + (i / 4) * 1.2;
-          return (
-            <mesh key={`fringe-${i}`} ref={mr(5+i)} position={[Math.sin(angle) * 0.9, 1.1 + i*0.03, Math.cos(angle) * 0.5 + 0.5]} scale={[1.2, 0.6, 1]}>
-              <sphereGeometry args={[0.22, 8, 6]} />
-              <meshPhongMaterial color="#1a1a2e" shininess={60} flatShading />
-            </mesh>
-          );
-        })}
-        {/* 10: Ear L */}
-        <mesh ref={mr(10)} position={[-1.12, 0.05, 0.1]} scale={[0.6, 1.2, 1]}>
-          <sphereGeometry args={[0.18, 12, 8]} />
-          <meshPhongMaterial color="#c4946a" shininess={30} />
-        </mesh>
-        {/* 11: Ear R */}
-        <mesh ref={mr(11)} position={[1.12, 0.05, 0.1]} scale={[0.6, 1.2, 1]}>
-          <sphereGeometry args={[0.18, 12, 8]} />
-          <meshPhongMaterial color="#c4946a" shininess={30} />
-        </mesh>
-        {/* 12-13: Eyes */}
-        <mesh ref={mr(12)} position={[-0.38, 0.2, 0.9]} scale={[1.3, 1, 1]}>
-          <sphereGeometry args={[0.2, 16, 12]} />
-          <meshPhongMaterial color="#ffffff" shininess={80} />
-        </mesh>
-        <mesh ref={mr(13)} position={[0.38, 0.2, 0.9]} scale={[1.3, 1, 1]}>
-          <sphereGeometry args={[0.2, 16, 12]} />
-          <meshPhongMaterial color="#ffffff" shininess={80} />
-        </mesh>
-        {/* 14-15: Irises */}
-        <mesh ref={mr(14)} position={[-0.36, 0.2, 1.08]}>
-          <sphereGeometry args={[0.12, 12, 8]} />
-          <meshPhongMaterial color="#2c1810" shininess={100} />
-        </mesh>
-        <mesh ref={mr(15)} position={[0.36, 0.2, 1.08]}>
-          <sphereGeometry args={[0.12, 12, 8]} />
-          <meshPhongMaterial color="#2c1810" shininess={100} />
-        </mesh>
-        {/* 16-17: Pupils */}
-        <mesh ref={mr(16)} position={[-0.35, 0.2, 1.16]}>
-          <sphereGeometry args={[0.06, 8, 6]} />
-          <meshPhongMaterial color="#050505" shininess={120} />
-        </mesh>
-        <mesh ref={mr(17)} position={[0.35, 0.2, 1.16]}>
-          <sphereGeometry args={[0.06, 8, 6]} />
-          <meshPhongMaterial color="#050505" shininess={120} />
-        </mesh>
-        {/* 18-19: Eye shines */}
-        <mesh ref={mr(18)} position={[-0.32, 0.24, 1.18]}>
-          <sphereGeometry args={[0.035, 8, 6]} />
-          <meshBasicMaterial color="#ffffff" />
-        </mesh>
-        <mesh ref={mr(19)} position={[0.38, 0.24, 1.18]}>
-          <sphereGeometry args={[0.035, 8, 6]} />
-          <meshBasicMaterial color="#ffffff" />
-        </mesh>
-        {/* 20-21: Brows */}
-        <mesh ref={mr(20)} position={[-0.38, 0.45, 0.95]} rotation={[0, 0, 0.1]}>
-          <boxGeometry args={[0.35, 0.06, 0.08]} />
-          <meshPhongMaterial color="#1a1a2e" />
-        </mesh>
-        <mesh ref={mr(21)} position={[0.38, 0.45, 0.95]} rotation={[0, 0, -0.1]}>
-          <boxGeometry args={[0.35, 0.06, 0.08]} />
-          <meshPhongMaterial color="#1a1a2e" />
-        </mesh>
-        {/* 22: Nose */}
-        <mesh ref={mr(22)} position={[0, -0.05, 1.1]} scale={[0.8, 1.2, 1]}>
-          <sphereGeometry args={[0.12, 10, 8]} />
-          <meshPhongMaterial color="#c4946a" shininess={30} />
-        </mesh>
-        {/* 23: Nose bridge */}
-        <mesh ref={mr(23)} position={[0, 0.1, 1.0]}>
-          <boxGeometry args={[0.08, 0.3, 0.1]} />
-          <meshPhongMaterial color="#d4a574" shininess={40} />
-        </mesh>
-        {/* 24: Mouth */}
-        <mesh ref={mr(24)} position={[0, -0.32, 1.0]} rotation={[0.1, 0, 0]}>
-          <torusGeometry args={[0.15, 0.035, 8, 16, Math.PI]} />
-          <meshPhongMaterial color="#b07060" shininess={50} />
-        </mesh>
-        {/* 25-26: Glass frames */}
-        <mesh ref={mr(25)} position={[-0.38, 0.2, 1.0]} rotation={[0, 0, Math.PI / 4]}>
-          <torusGeometry args={[0.28, 0.025, 8, 4]} />
-          <meshPhongMaterial color="#00e5ff" transparent opacity={0.6} shininess={100} />
-        </mesh>
-        <mesh ref={mr(26)} position={[-0.38, 0.2, 0.99]} rotation={[0, 0, Math.PI / 4]}>
-          <circleGeometry args={[0.25, 4]} />
-          <meshPhongMaterial color="#00e5ff" transparent opacity={0.25} shininess={120} />
-        </mesh>
-        <mesh ref={mr(27)} position={[0.38, 0.2, 1.0]} rotation={[0, 0, Math.PI / 4]}>
-          <torusGeometry args={[0.28, 0.025, 8, 4]} />
-          <meshPhongMaterial color="#00e5ff" transparent opacity={0.6} shininess={100} />
-        </mesh>
-        <mesh ref={mr(28)} position={[0.38, 0.2, 0.99]} rotation={[0, 0, Math.PI / 4]}>
-          <circleGeometry args={[0.25, 4]} />
-          <meshPhongMaterial color="#00e5ff" transparent opacity={0.25} shininess={120} />
-        </mesh>
-        {/* 29: Bridge */}
-        <mesh ref={mr(29)} position={[0, 0.24, 1.05]} rotation={[0, 0, Math.PI / 2]}>
-          <cylinderGeometry args={[0.015, 0.015, 0.2, 6]} />
-          <meshPhongMaterial color="#00e5ff" transparent opacity={0.6} shininess={100} />
-        </mesh>
-        {/* 30-31: Arms */}
-        <mesh ref={mr(30)} position={[-0.68, 0.2, 0.6]} rotation={[Math.PI / 2, 0, 0.15]}>
-          <cylinderGeometry args={[0.012, 0.012, 0.8, 6]} />
-          <meshPhongMaterial color="#00e5ff" transparent opacity={0.6} shininess={100} />
-        </mesh>
-        <mesh ref={mr(31)} position={[0.68, 0.2, 0.6]} rotation={[Math.PI / 2, 0, -0.15]}>
-          <cylinderGeometry args={[0.012, 0.012, 0.8, 6]} />
-          <meshPhongMaterial color="#00e5ff" transparent opacity={0.6} shininess={100} />
-        </mesh>
-        {/* 32: Neck */}
-        <mesh ref={mr(32)} position={[0, -1.2, 0]}>
-          <cylinderGeometry args={[0.4, 0.5, 0.5, 16]} />
-          <meshPhongMaterial color="#d4a574" shininess={40} />
-        </mesh>
-        {/* 33: Hood */}
-        <mesh ref={mr(33)} position={[0, -0.9, 0]} scale={[1.35, 1.1, 1.2]}>
-          <sphereGeometry args={[1.0, 16, 12, 0, Math.PI * 2, Math.PI * 0.35, Math.PI * 0.45]} />
-          <meshPhongMaterial color="#12121a" shininess={20} />
-        </mesh>
-        {/* 34-35: Hoodie strings */}
-        <mesh ref={mr(34)} position={[-0.2, -1.5, 0.9]}>
-          <cylinderGeometry args={[0.01, 0.015, 0.4, 6]} />
-          <meshPhongMaterial color="#00e5ff" emissive="#00e5ff" emissiveIntensity={0.3} shininess={120} />
-        </mesh>
-        <mesh ref={mr(35)} position={[0.2, -1.5, 0.9]}>
-          <cylinderGeometry args={[0.01, 0.015, 0.4, 6]} />
-          <meshPhongMaterial color="#00e5ff" emissive="#00e5ff" emissiveIntensity={0.3} shininess={120} />
-        </mesh>
-        {/* 36-37: String tips */}
-        <mesh ref={mr(36)} position={[-0.2, -1.72, 0.9]}>
-          <sphereGeometry args={[0.03, 8, 6]} />
-          <meshPhongMaterial color="#00e5ff" emissive="#00e5ff" emissiveIntensity={0.3} shininess={120} />
-        </mesh>
-        <mesh ref={mr(37)} position={[0.2, -1.72, 0.9]}>
-          <sphereGeometry args={[0.03, 8, 6]} />
-          <meshPhongMaterial color="#00e5ff" emissive="#00e5ff" emissiveIntensity={0.3} shininess={120} />
-        </mesh>
-        {/* 38: Ring 1 */}
-        <mesh ref={mr(38)} rotation={[Math.PI * 0.4, 0.3, 0]}>
-          <torusGeometry args={[2.0, 0.008, 8, 64]} />
-          <meshBasicMaterial color="#00e5ff" transparent opacity={0.2} />
-        </mesh>
-        {/* 39: Ring 2 */}
-        <mesh ref={mr(39)} rotation={[Math.PI * 0.55, 0, 0.5]}>
-          <torusGeometry args={[2.3, 0.006, 8, 64]} />
-          <meshBasicMaterial color="#7c4dff" transparent opacity={0.15} />
-        </mesh>
-        {/* 40-42: Orbital dots */}
-        <mesh ref={mr(40)}>
-          <sphereGeometry args={[0.04, 8, 6]} />
-          <meshBasicMaterial color="#00e5ff" />
-        </mesh>
-        <mesh ref={mr(41)}>
-          <sphereGeometry args={[0.04, 8, 6]} />
-          <meshBasicMaterial color="#7c4dff" />
-        </mesh>
-        <mesh ref={mr(42)}>
-          <sphereGeometry args={[0.04, 8, 6]} />
-          <meshBasicMaterial color="#ff4081" />
-        </mesh>
-      </group>
+function Orbits({ chaos }) {
+  const ring1 = useRef(); const ring2 = useRef();
+  const dot1 = useRef(); const dot2 = useRef(); const dot3 = useRef();
+  useFrame((state) => {
+    const t = state.clock.elapsedTime;
+    const speed = 1 + chaos * 6;
+    if (ring1.current) ring1.current.rotation.z = t * 0.4 * speed;
+    if (ring2.current) ring2.current.rotation.z = -t * 0.3 * speed;
+    if (dot1.current) dot1.current.position.set(Math.cos(t * 1.2) * 2.0, Math.sin(t * 1.2) * 0.8, Math.sin(t * 1.2) * 2.0);
+    if (dot2.current) dot2.current.position.set(Math.cos(t * 0.9 + 2) * 2.3, Math.sin(t * 0.9 + 2) * 1.0, Math.sin(t * 0.9 + 2) * 2.3);
+    if (dot3.current) dot3.current.position.set(Math.cos(t * 1.5 + 4) * 1.8, Math.sin(t * 1.5 + 4) * 1.2, Math.sin(t * 1.5 + 4) * 1.8);
+  });
+  return (
+    <>
+      <mesh ref={ring1} rotation={[Math.PI * 0.4, 0.3, 0]}>
+        <torusGeometry args={[2.0, 0.008, 8, 64]} /><meshBasicMaterial color="#00e5ff" transparent opacity={0.2} />
+      </mesh>
+      <mesh ref={ring2} rotation={[Math.PI * 0.55, 0, 0.5]}>
+        <torusGeometry args={[2.3, 0.006, 8, 64]} /><meshBasicMaterial color="#7c4dff" transparent opacity={0.15} />
+      </mesh>
+      <mesh ref={dot1}><sphereGeometry args={[0.04, 8, 6]} /><meshBasicMaterial color="#00e5ff" /></mesh>
+      <mesh ref={dot2}><sphereGeometry args={[0.04, 8, 6]} /><meshBasicMaterial color="#7c4dff" /></mesh>
+      <mesh ref={dot3}><sphereGeometry args={[0.04, 8, 6]} /><meshBasicMaterial color="#ff4081" /></mesh>
     </>
+  );
+}
+
+function AvatarLoader() {
+  const ref = useRef();
+  useFrame((state) => { if (ref.current) ref.current.rotation.z = -state.clock.elapsedTime * 2; });
+  return (
+    <mesh ref={ref}>
+      <torusGeometry args={[0.5, 0.02, 8, 48, Math.PI * 1.5]} />
+      <meshBasicMaterial color="#00e5ff" transparent opacity={0.6} />
+    </mesh>
   );
 }
 
 function AvatarCanvas({ chaos, activeSection }) {
   return (
     <div style={{ position: 'relative', width: 400, height: 450, flexShrink: 0 }}>
-      <Canvas camera={{ position: [0, 0.5, 6.5], fov: 35 }} dpr={[1, 2]} gl={{ alpha: true, antialias: true }} style={{ width: '100%', height: '100%', cursor: 'grab' }}>
-        <HeadModel chaos={chaos} activeSection={activeSection} />
+      <Canvas camera={{ position: [0, -0.2, 7.0], fov: 34 }} dpr={[1, 2]} gl={{ alpha: true, antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.15 }} style={{ width: '100%', height: '100%', cursor: 'grab' }}>
+        <ambientLight intensity={0.6} />
+        <hemisphereLight skyColor="#fff8ee" groundColor="#2a1206" intensity={0.5} />
+        <directionalLight position={[-2.5, 4, 5]} intensity={1.7} />
+        <directionalLight position={[3, 0.5, 4]} intensity={0.6} color="#ffddb0" />
+        <directionalLight position={[0, 2, -4]} intensity={0.9} color="#7c4dff" />
+        <Suspense fallback={<AvatarLoader />}>
+          <AvatarModel chaos={chaos} activeSection={activeSection} />
+        </Suspense>
+        <Orbits chaos={chaos} />
       </Canvas>
       <div style={{ position: 'absolute', top: 12, right: 12, fontFamily: "'Space Mono', monospace", fontSize: 9, color: '#7c4dff', opacity: 0.4, letterSpacing: '0.15em', textAlign: 'right' }}>
         ID:OT-007<br/>STATUS:ACTIVE
