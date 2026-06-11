@@ -172,9 +172,11 @@ function formatDate(dateStr) {
 // ===== BLOG PAGE =====
 export default function Blog() {
   const [selectedPost, setSelectedPost] = useState(null);
-  const [dark, setDark] = useState(true);
+  const [dark, setDark] = useState(() => { try { return localStorage.getItem("ot-theme") !== "light"; } catch { return true; } });
   const [filterTag, setFilterTag] = useState(null);
   const contentRef = useRef(null);
+
+  useEffect(() => { try { localStorage.setItem("ot-theme", dark ? "dark" : "light"); } catch {} }, [dark]);
 
   // Check URL hash for direct post links
   useEffect(() => {

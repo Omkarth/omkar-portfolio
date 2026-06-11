@@ -1,11 +1,12 @@
-import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo, Suspense, lazy } from "react";
 import { Canvas, useFrame, useThree, createPortal as createPortal3D } from "@react-three/fiber";
 import { useGLTF, useAnimations } from "@react-three/drei";
 import { createPortal } from "react-dom";
 import * as THREE from "three";
-import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer } from "recharts";
 import { Link } from "react-router-dom";
-import { X, ExternalLink, Github, Mail, Linkedin, Phone, ChevronDown, ArrowRight, Moon, Sun, Filter, Code2, Cpu, Database, Globe, Shield, Terminal, Award, GraduationCap, Briefcase, Calendar, Zap } from "lucide-react";
+import { X, ExternalLink, Github, Mail, Linkedin, Phone, ChevronDown, ArrowRight, Moon, Sun, Filter, Code2, Cpu, Database, Globe, Shield, Terminal, Award, GraduationCap, Briefcase, Calendar, Zap, Menu } from "lucide-react";
+
+const SkillRadar = lazy(() => import("./SkillRadar"));
 
 // ===== R3F AVATAR (Ready Player Me model + animation library, hosted in /public) =====
 const SECTION_ROT = { home:0, about:0.4, experience:0.25, projects:-0.4, skills:-0.25, certifications:-0.15, contact:0 };
@@ -662,10 +663,10 @@ function AvatarCanvas({ chaos, activeSection }) {
 // ===== DATA =====
 const projects = [
   { id:5, cat:"ai", idx:"01", name:"CyberLLM", short:"Domain-specific 350M param cybersecurity LLM built from scratch", desc:"Built a domain-specific cybersecurity language model from scratch — a 350M parameter LLaMA-3 style decoder-only transformer. Trained a custom SentencePiece tokenizer (32K vocab) on security corpus, then pretrained on 5B tokens from 10+ cybersecurity sources including NVD/CVE, MITRE ATT&CK, NIST SP 800, and OWASP. Fine-tuned with 3,750 cybersecurity instruction pairs via SFT. Runs locally on Apple M4 MPS.", tech:["Python","PyTorch","LLaMA-3","SentencePiece","RunPod A40","Flask"], metric:"350M", metricLabel:"Parameters", features:["Custom 32K tokenizer trained on security corpus","3.4B tokens from 10+ cybersecurity data sources","LLaMA-3 architecture: 24 layers, GQA, SwiGLU, RoPE","Pretraining loss: 9.2 → 3.8 over 5B token budget","SFT on 3,750 cybersecurity instruction pairs","SOC Dashboard with real-time alert analysis"], challenges:"Training a capable LLM with limited compute required careful data curation — 90% security-weighted training data from Primus-FineWeb, Stack Exchange InfoSec, ArXiv cs.CR, and government publications. Solved scaling issues by testing the full pipeline locally on M4 before running 50-hour A40 training on RunPod.", year:"2025-2026", color:"#00ff88", github:"https://github.com/Omkarth/CyberLLM", hasDemo:true },
-  { id:1, cat:"security", idx:"02", name:"Secure Open Chat Protocol (SOCP)", short:"WebSocket-based encrypted messaging with RSA-4096 & asyncio", desc:"Designed the core server architecture and implemented WebSocket handling for a secure, asynchronous messaging system. Engineered the message routing mechanism and utilized Python's asyncio library to successfully manage multiple parallel connections. Led the project's intentional backdoor implementation strategy, designing vulnerabilities for peer-review security auditing. Integrated RSA-4096 encryption and canonical JSON serialization to ensure strict signature verification across the network.", tech:["Python","WebSockets","asyncio","RSA-4096","JSON"], metric:"RSA-4096", metricLabel:"Encryption", features:["Asynchronous message routing","RSA-4096 end-to-end encryption","Canonical JSON serialization","Peer-review security auditing","Multi-connection management"], challenges:"Managing concurrent WebSocket connections while maintaining encryption integrity was the core challenge. Solved by implementing an async event loop with dedicated encryption/decryption pipelines per connection.", year:"2025-2026", color:"#00e5ff", github:"https://github.com/Omkarth" },
-  { id:2, cat:"iot", idx:"03", name:"IoT Smart Logistics System", short:"Real-time tracking system reducing delivery delays by 40-50%", desc:"Developed an IoT-powered system to streamline logistics and transportation with real-time tracking and resource optimization. Integrated IoT sensors and cloud analytics, reducing delivery delays by 40-50% through automated route planning. Enhanced operational efficiency by 60% with predictive maintenance and data-driven insights.", tech:["IoT","Python","MQTT","AWS","Cloud Computing"], metric:"-50%", metricLabel:"Delivery Delays", features:["Real-time GPS tracking","Automated route optimization","Predictive maintenance alerts","Cloud-based analytics dashboard","MQTT sensor integration"], challenges:"Handling real-time data streams from hundreds of IoT sensors while maintaining low latency. Implemented MQTT message queuing with AWS IoT Core for scalable ingestion.", year:"2024-2025", color:"#7c4dff", github:"https://github.com/Omkarth" },
-  { id:3, cat:"ai", idx:"04", name:"Human Action Detection", short:"95% accuracy real-time detection in video via MATLAB & ML", desc:"Built a system for real-time human action and object detection in videos using MATLAB, targeting surveillance applications. Achieved 95% accuracy in detection by leveraging computer vision and machine learning algorithms. Reduced processing time by 80% through optimized feature extraction and model training.", tech:["MATLAB","OpenCV","Neural Networks","Computer Vision","ML"], metric:"95%", metricLabel:"Accuracy", features:["Real-time video processing","Multi-action classification","Object detection overlay","Optimized feature extraction","Surveillance-grade performance"], challenges:"Achieving real-time performance with high accuracy required innovative feature extraction. Implemented a pipeline that reduced processing time by 80% while maintaining 95% detection accuracy.", year:"2023-2024", color:"#ff4081", github:"https://github.com/Omkarth" },
-  { id:4, cat:"web", idx:"05", name:"Virtual Queuing System", short:"Ration distribution system boosting efficiency by 50%", desc:"Designed a virtual queuing system to improve ration distribution, minimizing wait times for beneficiaries. Automated scheduling and notifications, increasing distribution efficiency by 50%. Improved accessibility for users through a user-friendly interface and real-time updates.", tech:["Python","JavaScript","MySQL","Web Frameworks","Mobile Dev"], metric:"+50%", metricLabel:"Efficiency", features:["Virtual queue management","Automated SMS notifications","Real-time status updates","Mobile-responsive interface","Admin analytics dashboard"], challenges:"Designing a system accessible to users with varying tech literacy. Built a progressive web app with SMS fallback for notifications and an extremely simplified UI flow.", year:"2022-2023", color:"#ffc107", github:"https://github.com/Omkarth" },
+  { id:1, cat:"security", idx:"02", name:"Secure Open Chat Protocol (SOCP)", short:"WebSocket-based encrypted messaging with RSA-4096 & asyncio", desc:"Designed the core server architecture and implemented WebSocket handling for a secure, asynchronous messaging system. Engineered the message routing mechanism and utilized Python's asyncio library to successfully manage multiple parallel connections. Led the project's intentional backdoor implementation strategy, designing vulnerabilities for peer-review security auditing. Integrated RSA-4096 encryption and canonical JSON serialization to ensure strict signature verification across the network.", tech:["Python","WebSockets","asyncio","RSA-4096","JSON"], metric:"RSA-4096", metricLabel:"Encryption", features:["Asynchronous message routing","RSA-4096 end-to-end encryption","Canonical JSON serialization","Peer-review security auditing","Multi-connection management"], challenges:"Managing concurrent WebSocket connections while maintaining encryption integrity was the core challenge. Solved by implementing an async event loop with dedicated encryption/decryption pipelines per connection.", year:"2025-2026", color:"#00e5ff", github:"https://github.com/Omkarth/socp-chat" },
+  { id:2, cat:"iot", idx:"03", name:"IoT Smart Logistics System", short:"Real-time tracking system reducing delivery delays by 40-50%", desc:"Developed an IoT-powered system to streamline logistics and transportation with real-time tracking and resource optimization. Integrated IoT sensors and cloud analytics, reducing delivery delays by 40-50% through automated route planning. Enhanced operational efficiency by 60% with predictive maintenance and data-driven insights.", tech:["IoT","Python","MQTT","AWS","Cloud Computing"], metric:"-50%", metricLabel:"Delivery Delays", features:["Real-time GPS tracking","Automated route optimization","Predictive maintenance alerts","Cloud-based analytics dashboard","MQTT sensor integration"], challenges:"Handling real-time data streams from hundreds of IoT sensors while maintaining low latency. Implemented MQTT message queuing with AWS IoT Core for scalable ingestion.", year:"2024-2025", color:"#7c4dff" },
+  { id:3, cat:"ai", idx:"04", name:"Human Action Detection", short:"95% accuracy real-time detection in video via MATLAB & ML", desc:"Built a system for real-time human action and object detection in videos using MATLAB, targeting surveillance applications. Achieved 95% accuracy in detection by leveraging computer vision and machine learning algorithms. Reduced processing time by 80% through optimized feature extraction and model training.", tech:["MATLAB","OpenCV","Neural Networks","Computer Vision","ML"], metric:"95%", metricLabel:"Accuracy", features:["Real-time video processing","Multi-action classification","Object detection overlay","Optimized feature extraction","Surveillance-grade performance"], challenges:"Achieving real-time performance with high accuracy required innovative feature extraction. Implemented a pipeline that reduced processing time by 80% while maintaining 95% detection accuracy.", year:"2023-2024", color:"#ff4081" },
+  { id:4, cat:"web", idx:"05", name:"Virtual Queuing System", short:"Ration distribution system boosting efficiency by 50%", desc:"Designed a virtual queuing system to improve ration distribution, minimizing wait times for beneficiaries. Automated scheduling and notifications, increasing distribution efficiency by 50%. Improved accessibility for users through a user-friendly interface and real-time updates.", tech:["Python","JavaScript","MySQL","Web Frameworks","Mobile Dev"], metric:"+50%", metricLabel:"Efficiency", features:["Virtual queue management","Automated SMS notifications","Real-time status updates","Mobile-responsive interface","Admin analytics dashboard"], challenges:"Designing a system accessible to users with varying tech literacy. Built a progressive web app with SMS fallback for notifications and an extremely simplified UI flow.", year:"2022-2023", color:"#ffc107" },
 ];
 
 const skills = {
@@ -1277,7 +1278,7 @@ function ProjectModal({ project, onClose }) {
             <div style={{ fontSize:11, color:'#8888a0', fontFamily:"'Space Mono',monospace", letterSpacing:'0.15em', textTransform:'uppercase' }}>{project.metricLabel}</div>
             <div style={{ fontFamily:"'Syne',sans-serif", fontSize:42, fontWeight:800, color:project.color, lineHeight:1 }}>{project.metric}</div>
           </div>
-          <a href={project.github} target="_blank" rel="noreferrer" style={{ padding:'10px 20px', background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:6, color:'#e8e8f0', textDecoration:'none', fontSize:12, fontFamily:"'Space Mono',monospace", display:'flex', alignItems:'center', gap:6 }}><Github size={14}/> Code</a>
+          {project.github && <a href={project.github} target="_blank" rel="noreferrer" style={{ padding:'10px 20px', background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.1)', borderRadius:6, color:'#e8e8f0', textDecoration:'none', fontSize:12, fontFamily:"'Space Mono',monospace", display:'flex', alignItems:'center', gap:6 }}><Github size={14}/> Code</a>}
         </div>
         <div style={{ padding:'0 40px', marginBottom:32 }}>
           <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:16, fontWeight:700, marginBottom:12, display:'flex', alignItems:'center', gap:8 }}><Code2 size={16} style={{ color:project.color }}/> Overview</h3>
@@ -1345,8 +1346,12 @@ export default function Portfolio() {
   const [selectedProject, setSelectedProject] = useState(null);
   const [navHidden, setNavHidden] = useState(false);
   const [activeSection, setActiveSection] = useState('home');
-  const [dark, setDark] = useState(true);
+  const [dark, setDark] = useState(() => { try { return localStorage.getItem("ot-theme") !== "light"; } catch { return true; } });
+  const [menuOpen, setMenuOpen] = useState(false);
+  const reduceMotion = useMemo(() => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false, []);
   const lastScroll = useRef(0);
+
+  useEffect(() => { try { localStorage.setItem("ot-theme", dark ? "dark" : "light"); } catch {} }, [dark]);
 
   useEffect(() => {
     const h = () => {
@@ -1409,6 +1414,9 @@ export default function Portfolio() {
           .grid-4 { grid-template-columns: 1fr !important; }
           .avatar-slot { width: 280px !important; height: 330px !important; }
         }
+        .nav-burger { display: none !important; }
+        @media (max-width: 900px) { .nav-burger { display: flex !important; } }
+        @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto } }
       `}</style>
 
       {/* Aurora backdrop: navy depth gradient with soft accent glows */}
@@ -1424,8 +1432,8 @@ export default function Portfolio() {
              linear-gradient(180deg, #f7f8fc, #eef1f8)`,
       }} />
 
-      {dark && <BackgroundCanvas chaos={chaos} />}
-      <FloatingDebris scrollY={scrollY} chaos={chaos} />
+      {dark && !reduceMotion && <BackgroundCanvas chaos={chaos} />}
+      {!reduceMotion && <FloatingDebris scrollY={scrollY} chaos={chaos} />}
 
       {dark && (
         <>
@@ -1467,8 +1475,19 @@ export default function Portfolio() {
           </div>
           <Link to="/blog" style={{ fontFamily:"'Space Mono',monospace", fontSize:11, letterSpacing:'0.15em', textTransform:'uppercase', color:textDim, textDecoration:'none', padding:'4px 0', transition:'color 0.3s', borderBottom:'1px solid transparent' }}>Blog</Link>
           <button onClick={()=>{ if(dark){ avatarReact('shield'); avatarSay('☀️ ouch — my eyes!'); } setDark(!dark); }} style={{ background:'rgba(255,255,255,0.06)', border:`1px solid ${border}`, borderRadius:'50%', width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:text }}>{dark?<Sun size={15}/>:<Moon size={15}/>}</button>
+          <button className="nav-burger" onClick={()=>setMenuOpen(!menuOpen)} aria-label="Menu" style={{ background:'rgba(255,255,255,0.06)', border:`1px solid ${border}`, borderRadius:'50%', width:36, height:36, alignItems:'center', justifyContent:'center', cursor:'pointer', color:text }}>{menuOpen?<X size={16}/>:<Menu size={16}/>}</button>
         </div>
       </nav>
+
+      {/* Mobile menu overlay */}
+      {menuOpen && (
+        <div onClick={()=>setMenuOpen(false)} style={{ position:'fixed', inset:0, zIndex:99, background: dark?'rgba(9,12,24,0.96)':'rgba(247,248,252,0.97)', backdropFilter:'blur(16px)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:26, animation:'fadeIn 0.25s ease' }}>
+          {['about','experience','projects','skills','certifications','contact'].map(s=>(
+            <a key={s} href={`#${s}`} onClick={()=>setMenuOpen(false)} style={{ fontFamily:"'Space Mono',monospace", fontSize:15, letterSpacing:'0.25em', textTransform:'uppercase', color:activeSection===s?accent:text, textDecoration:'none' }}>{s}</a>
+          ))}
+          <Link to="/blog" style={{ fontFamily:"'Space Mono',monospace", fontSize:15, letterSpacing:'0.25em', textTransform:'uppercase', color:text, textDecoration:'none' }}>Blog</Link>
+        </div>
+      )}
 
       <div style={{ position:'relative', zIndex:5 }}>
 
@@ -1636,13 +1655,9 @@ export default function Portfolio() {
             <AntiGravEl index={30} scrollY={scrollY} chaos={chaos} mousePos={mousePos} onMouseEnter={()=>avatarReact('think')} style={{ background:card, border:`1px solid ${border}`, boxShadow:cardShadow, padding:28, borderRadius:8 }}>
               <RevealSection delay={0.4}>
                 <div style={{ fontFamily:"'Syne',sans-serif", fontSize:15, fontWeight:700, marginBottom:16 }}>Skill Radar</div>
-                <ResponsiveContainer width="100%" height={280}>
-                  <RadarChart data={radarData}>
-                    <PolarGrid stroke={dark?'rgba(255,255,255,0.06)':'rgba(0,0,0,0.08)'}/>
-                    <PolarAngleAxis dataKey="skill" tick={{ fill:textDim, fontSize:11, fontFamily:"'Space Mono',monospace" }}/>
-                    <Radar dataKey="val" stroke={accent} fill={accent} fillOpacity={0.15} strokeWidth={2}/>
-                  </RadarChart>
-                </ResponsiveContainer>
+                <Suspense fallback={<div style={{ height:280 }} />}>
+                  <SkillRadar data={radarData} dark={dark} accent={accent} textDim={textDim} />
+                </Suspense>
               </RevealSection>
             </AntiGravEl>
           </div>
