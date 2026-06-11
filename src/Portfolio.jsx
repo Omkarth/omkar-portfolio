@@ -4,7 +4,7 @@ import { useGLTF, useAnimations } from "@react-three/drei";
 import { createPortal } from "react-dom";
 import * as THREE from "three";
 import { Link } from "react-router-dom";
-import { X, ExternalLink, Github, Mail, Linkedin, Phone, ChevronDown, ArrowRight, Moon, Sun, Filter, Code2, Cpu, Database, Globe, Shield, Terminal, Award, GraduationCap, Briefcase, Calendar, Zap, Menu } from "lucide-react";
+import { X, ExternalLink, Github, Mail, Linkedin, Phone, ChevronDown, ArrowRight, Moon, Sun, Filter, Code2, Cpu, Database, Globe, Shield, Terminal, Award, GraduationCap, Briefcase, Calendar, Zap, Menu, FileDown } from "lucide-react";
 
 const SkillRadar = lazy(() => import("./SkillRadar"));
 
@@ -1480,6 +1480,10 @@ export default function Portfolio() {
             ))}
           </div>
           <Link to="/blog" style={{ fontFamily:"'Space Mono',monospace", fontSize:11, letterSpacing:'0.15em', textTransform:'uppercase', color:textDim, textDecoration:'none', padding:'4px 0', transition:'color 0.3s', borderBottom:'1px solid transparent' }}>Blog</Link>
+          <a href="/resume.pdf" target="_blank" rel="noreferrer" style={{ fontFamily:"'Space Mono',monospace", fontSize:11, letterSpacing:'0.15em', textTransform:'uppercase', color:accent, textDecoration:'none', padding:'6px 14px', border:`1px solid ${accent}40`, borderRadius:4, display:'flex', alignItems:'center', gap:6, transition:'all 0.3s' }}
+            onMouseEnter={e=>{e.currentTarget.style.background=`${accent}15`;}} onMouseLeave={e=>{e.currentTarget.style.background='transparent';}}>
+            <FileDown size={13}/> Resume
+          </a>
           <button onClick={()=>{ if(dark){ avatarReact('shield'); avatarSay('☀️ ouch — my eyes!'); } setDark(!dark); }} style={{ background:'rgba(255,255,255,0.06)', border:`1px solid ${border}`, borderRadius:'50%', width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:text }}>{dark?<Sun size={15}/>:<Moon size={15}/>}</button>
           <button className="nav-burger" onClick={()=>setMenuOpen(!menuOpen)} aria-label="Menu" style={{ background:'rgba(255,255,255,0.06)', border:`1px solid ${border}`, borderRadius:'50%', width:36, height:36, alignItems:'center', justifyContent:'center', cursor:'pointer', color:text }}>{menuOpen?<X size={16}/>:<Menu size={16}/>}</button>
         </div>
@@ -1492,6 +1496,7 @@ export default function Portfolio() {
             <a key={s} href={`#${s}`} onClick={()=>setMenuOpen(false)} style={{ fontFamily:"'Space Mono',monospace", fontSize:15, letterSpacing:'0.25em', textTransform:'uppercase', color:activeSection===s?accent:text, textDecoration:'none' }}>{s}</a>
           ))}
           <Link to="/blog" style={{ fontFamily:"'Space Mono',monospace", fontSize:15, letterSpacing:'0.25em', textTransform:'uppercase', color:text, textDecoration:'none' }}>Blog</Link>
+          <a href="/resume.pdf" target="_blank" rel="noreferrer" onClick={()=>setMenuOpen(false)} style={{ fontFamily:"'Space Mono',monospace", fontSize:15, letterSpacing:'0.25em', textTransform:'uppercase', color:accent, textDecoration:'none', display:'flex', alignItems:'center', gap:8 }}><FileDown size={16}/> Resume</a>
         </div>
       )}
 
@@ -1711,9 +1716,10 @@ export default function Portfolio() {
                   { icon:Linkedin, label:'LinkedIn', href:'https://www.linkedin.com/in/omkar-thombre-7a90a6262/' },
                   { icon:Github, label:'GitHub', href:'https://github.com/Omkarth' },
                   { icon:Phone, label:'Call', href:'tel:+61433237995' },
+                  { icon:FileDown, label:'Resume', href:'/resume.pdf' },
                 ].map((l,i)=>(
                   <AntiGravEl key={i} index={56+i} scrollY={scrollY} chaos={chaos} mousePos={mousePos}>
-                    <a href={l.href} target={l.href.startsWith('http')?'_blank':undefined} rel="noreferrer"
+                    <a href={l.href} target={l.href.startsWith('http')||l.href.endsWith('.pdf')?'_blank':undefined} rel="noreferrer"
                       style={{ fontFamily:"'Space Mono',monospace", fontSize:12, letterSpacing:'0.12em', textTransform:'uppercase', padding:'14px 28px', border:`1px solid ${border}`, color:textDim, textDecoration:'none', transition:'all 0.4s', display:'flex', alignItems:'center', gap:8, borderRadius:4 }}
                       onMouseEnter={e=>{e.currentTarget.style.borderColor=accent;e.currentTarget.style.color=accent;e.currentTarget.style.transform='translateY(-3px)';e.currentTarget.style.boxShadow=`0 8px 30px ${accent}18`;avatarReact('wave');}}
                       onMouseLeave={e=>{e.currentTarget.style.borderColor=border;e.currentTarget.style.color=textDim;e.currentTarget.style.transform='translateY(0)';e.currentTarget.style.boxShadow='none';}}>
