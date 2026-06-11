@@ -476,7 +476,10 @@ function AvatarCanvas({ chaos, activeSection }) {
         if (glideTo.current !== null) {
           const cur = window.scrollY;
           const d = glideTo.current - cur;
-          if (Math.abs(d) > 2) window.scrollTo(0, cur + d * 0.06);
+          // behavior:'instant' bypasses the page's CSS scroll-behavior:smooth —
+          // otherwise every per-frame scrollTo restarts a smooth animation and
+          // the glide crawls instead of easing.
+          if (Math.abs(d) > 2) window.scrollTo({ top: cur + d * 0.06, behavior: 'instant' });
           else glideTo.current = null;
         }
         if (tourRef.current !== null) {
@@ -522,7 +525,10 @@ function AvatarCanvas({ chaos, activeSection }) {
     }
     const step = TOUR_STEPS[tourIdx];
     const el = document.getElementById(step.id);
-    if (el) glideTo.current = el.getBoundingClientRect().top + window.scrollY;
+    if (el) glideTo.current = Math.min(
+      el.getBoundingClientRect().top + window.scrollY,
+      document.documentElement.scrollHeight - window.innerHeight
+    );
     setBubbleOverride(step.line);
     animAt.current = performance.now() + 700;
     stepDeadline.current = performance.now() + 2800 + step.line.length * 60;
