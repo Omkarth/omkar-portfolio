@@ -194,13 +194,13 @@ export default function Blog() {
   const allTags = [...new Set(posts.flatMap((p) => p.tags))];
   const filtered = filterTag ? posts.filter((p) => p.tags.includes(filterTag)) : posts;
 
-  const accent = "#00e5ff";
-  const accent2 = "#7c4dff";
-  const bg = dark ? "#0a0a0f" : "#f5f5f8";
-  const card = dark ? "#12121a" : "#ffffff";
+  const accent = dark ? "#00e5ff" : "#0091ad";
+  const accent2 = dark ? "#7c4dff" : "#6a3de8";
+  const bg = dark ? "#090c18" : "#f4f6fb";
+  const card = dark ? "#131a2e" : "#ffffff";
   const text = dark ? "#e8e8f0" : "#1a1a2e";
-  const textDim = dark ? "#8888a0" : "#666680";
-  const border = dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.08)";
+  const textDim = dark ? "#8e96b0" : "#5b5e78";
+  const border = dark ? "rgba(140,160,255,0.10)" : "rgba(20,30,60,0.10)";
   const mono = "'Space Mono',monospace";
   const heading = "'Syne',sans-serif";
   const body = "'DM Sans',sans-serif";
@@ -214,16 +214,30 @@ export default function Blog() {
         ::selection { background:#00e5ff33; color:#00e5ff }
         * { scrollbar-width:thin; scrollbar-color:#00e5ff33 transparent }
         html { scroll-behavior:smooth }
+        /* React drops -webkit-background-clip when the inline background updates (theme toggle) — enforce via CSS */
+        .grad-text, .grad-text span { -webkit-background-clip: text !important; background-clip: text !important; }
       `}</style>
+
+      {/* Aurora backdrop — matches the main portfolio page */}
+      <div style={{
+        position: "fixed", inset: 0, zIndex: 0, pointerEvents: "none",
+        background: dark
+          ? `radial-gradient(1100px 700px at 12% 8%, rgba(0,229,255,0.08), transparent 60%),
+             radial-gradient(1000px 800px at 88% 35%, rgba(124,77,255,0.10), transparent 60%),
+             linear-gradient(180deg, #0d1226 0%, #090c18 60%, #0a0e1d 100%)`
+          : `radial-gradient(1100px 700px at 12% 8%, rgba(0,145,173,0.06), transparent 60%),
+             radial-gradient(1000px 800px at 88% 35%, rgba(106,61,232,0.05), transparent 60%),
+             linear-gradient(180deg, #f7f8fc, #eef1f8)`,
+      }} />
 
       {/* NAV */}
       <nav style={{
         position: "sticky", top: 0, zIndex: 100,
         padding: "16px 48px", display: "flex", justifyContent: "space-between", alignItems: "center",
-        background: dark ? "rgba(10,10,15,0.85)" : "rgba(245,245,248,0.9)",
+        background: dark ? "rgba(10,14,28,0.85)" : "rgba(247,248,252,0.9)",
         backdropFilter: "blur(20px)", borderBottom: `1px solid ${border}`,
       }}>
-        <Link to="/" style={{ fontFamily: heading, fontWeight: 800, fontSize: 22, background: `linear-gradient(135deg,${accent},${accent2})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", textDecoration: "none" }}>
+        <Link to="/" className="grad-text" style={{ fontFamily: heading, fontWeight: 800, fontSize: 22, background: `linear-gradient(135deg,${accent},${accent2})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", textDecoration: "none" }}>
           OT.
         </Link>
         <div style={{ display: "flex", gap: 28, alignItems: "center" }}>
@@ -239,7 +253,7 @@ export default function Blog() {
         </div>
       </nav>
 
-      <div style={{ maxWidth: 820, margin: "0 auto", padding: "60px 24px 120px" }}>
+      <div style={{ position: "relative", zIndex: 1, maxWidth: 820, margin: "0 auto", padding: "60px 24px 120px" }}>
 
         {/* READING VIEW */}
         {selectedPost ? (
@@ -303,7 +317,7 @@ export default function Blog() {
                 Blog
               </div>
               <h1 style={{ fontFamily: heading, fontSize: "clamp(2rem, 4.5vw, 3.2rem)", fontWeight: 800, letterSpacing: "-0.03em", lineHeight: 1.1, marginBottom: 16 }}>
-                Thoughts & <span style={{ background: `linear-gradient(135deg,${accent},${accent2})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>write-ups.</span>
+                Thoughts & <span className="grad-text" style={{ background: `linear-gradient(135deg,${accent},${accent2})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>write-ups.</span>
               </h1>
               <p style={{ fontSize: 16, color: textDim, maxWidth: 520, lineHeight: 1.7, fontWeight: 300 }}>
                 Notes on building things — from training language models to detecting ships from space.

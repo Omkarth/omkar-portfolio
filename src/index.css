@@ -12,6 +12,7 @@ html {
 body {
   margin: 0;
   padding: 0;
+  background: #090c18;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;

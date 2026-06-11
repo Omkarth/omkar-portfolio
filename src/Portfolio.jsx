@@ -1,26 +1,206 @@
 import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { useGLTF } from "@react-three/drei";
+import { Canvas, useFrame, useThree, createPortal as createPortal3D } from "@react-three/fiber";
+import { useGLTF, useAnimations } from "@react-three/drei";
+import { createPortal } from "react-dom";
 import * as THREE from "three";
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer } from "recharts";
 import { Link } from "react-router-dom";
 import { X, ExternalLink, Github, Mail, Linkedin, Phone, ChevronDown, ArrowRight, Moon, Sun, Filter, Code2, Cpu, Database, Globe, Shield, Terminal, Award, GraduationCap, Briefcase, Calendar, Zap } from "lucide-react";
 
-// ===== R3F AVATAR (Ready Player Me model, hosted locally at /public/avatar.glb) =====
+// ===== R3F AVATAR (Ready Player Me model + animation library, hosted in /public) =====
 const SECTION_ROT = { home:0, about:0.4, experience:0.25, projects:-0.4, skills:-0.25, certifications:-0.15, contact:0 };
 const AVATAR_URL = "/avatar.glb";
+const ANIM_URL = "/animations.glb";
 
-function AvatarModel({ chaos, activeSection }) {
+const SECTION_IDLE = { home:"idle", about:"idle2", experience:"idle", projects:"idle3", skills:"idle2", certifications:"idle3", contact:"idle" };
+const SECTION_LINES = {
+  home: "hi, I'm Omkar 👋",
+  about: "security × systems × AI",
+  experience: "TA @ University of Adelaide",
+  projects: "ask me about CyberLLM",
+  skills: "full-stack & then some",
+  certifications: "certified & curious",
+  contact: "let's build something",
+};
+const CLICK_REACTIONS = ["cheer", "bow", "think"];
+
+// Cross-component avatar hooks: any part of the page can ask the avatar to
+// gesture or speak without prop-drilling through the layout tree.
+const avatarReact = (name) => window.dispatchEvent(new CustomEvent("avatar-react", { detail: name }));
+const avatarSay = (line) => window.dispatchEvent(new CustomEvent("avatar-say", { detail: line }));
+
+const TOUR_STEPS = [
+  { id: "home", line: "hi, I'm Omkar 👋 — let me show you around", anim: "wave" },
+  { id: "about", line: "Master's student at Adelaide — I like breaking systems, then building better ones", anim: "talk1" },
+  { id: "experience", line: "Teaching Assistant, intern, builder — here's where I've worked", anim: "talk2" },
+  { id: "projects", line: "my favourite: CyberLLM — a 350M-param security LLM trained from scratch", anim: "cheer" },
+  { id: "skills", line: "the toolbox — from React to PyTorch, with a security mindset", anim: "talk1" },
+  { id: "certifications", line: "the receipts 📜 — Google Cloud, security, and more", anim: "talk2" },
+  { id: "contact", line: "that's me! say hi — let's build something together", anim: "bow" },
+];
+
+const QA = [
+  [/cyber\s*llm|llm|model|ai\b/i, "CyberLLM is my 350M-param security LLM — custom tokenizer, 5B-token pretraining, SFT. It's in Projects, with a live SOC demo!"],
+  [/project/i, "head to Projects — CyberLLM, an encrypted chat protocol, IoT logistics, and more."],
+  [/skill|stack|tech/i, "Python, PyTorch, React, Node, AWS — plus a healthy security mindset."],
+  [/experience|work|job|intern/i, "currently a Teaching Assistant at the University of Adelaide; before that, IoT and data science internships."],
+  [/contact|email|hire|reach|touch/i, "scroll to Contact, or use the Get in Touch button — Omkar replies fast 😉"],
+  [/study|degree|university|education|adelaide/i, "Master's in Computer Science at the University of Adelaide."],
+  [/who|name|you\b/i, "I'm Omkar Thombre's avatar — the slightly more pixelated version of him."],
+  [/security|cyber|hack/i, "security is the thing — secure protocols, SOC tooling, and an LLM trained on CVEs."],
+  [/dance|party/i, "try clicking me ten times. just saying. 🕺"],
+];
+const answerFor = (q) => {
+  for (const [re, a] of QA) if (re.test(q)) return a;
+  return "good question! ask me about projects, skills, experience, or how to reach Omkar.";
+};
+
+// Loads the shared animation clips and binds them to the avatar's skeleton.
+// Separate component so the avatar renders before the (larger) clip file arrives.
+function AnimDriver({ scene, api }) {
+  const { animations } = useGLTF(ANIM_URL);
+  const { actions, mixer } = useAnimations(animations, scene);
+  useEffect(() => {
+    const a = api.current;
+    a.actions = actions; a.mixer = mixer; a.ready = true;
+    const onFinished = () => a.onFinished?.();
+    mixer.addEventListener("finished", onFinished);
+    a.onReady?.();
+    return () => { mixer.removeEventListener("finished", onFinished); a.ready = false; a.current = null; };
+  }, [actions, mixer, api]);
+  return null;
+}
+
+// Spectacles built from primitives, rendered inside the Head bone so they
+// follow head tracking exactly. Sizes are in head-bone local space (metres).
+function Glasses() {
+  const frame = { color: "#15151a", metalness: 0.45, roughness: 0.35 };
+  return (
+    <group position={[0, 0.075, 0.05]}>
+      <mesh position={[-0.0315, 0, 0.072]}>
+        <torusGeometry args={[0.0245, 0.0028, 10, 28]} /><meshStandardMaterial {...frame} />
+      </mesh>
+      <mesh position={[0.0315, 0, 0.072]}>
+        <torusGeometry args={[0.0245, 0.0028, 10, 28]} /><meshStandardMaterial {...frame} />
+      </mesh>
+      <mesh position={[-0.0315, 0, 0.071]}>
+        <circleGeometry args={[0.0225, 24]} /><meshStandardMaterial color="#aaccee" transparent opacity={0.12} roughness={0.05} />
+      </mesh>
+      <mesh position={[0.0315, 0, 0.071]}>
+        <circleGeometry args={[0.0225, 24]} /><meshStandardMaterial color="#aaccee" transparent opacity={0.12} roughness={0.05} />
+      </mesh>
+      <mesh position={[0, 0.006, 0.072]} rotation={[0, 0, Math.PI / 2]}>
+        <cylinderGeometry args={[0.0024, 0.0024, 0.018, 8]} /><meshStandardMaterial {...frame} />
+      </mesh>
+      <mesh position={[-0.0585, 0.006, 0.022]} rotation={[Math.PI / 2, 0, 0.06]}>
+        <cylinderGeometry args={[0.0022, 0.0022, 0.1, 8]} /><meshStandardMaterial {...frame} />
+      </mesh>
+      <mesh position={[0.0585, 0.006, 0.022]} rotation={[Math.PI / 2, 0, -0.06]}>
+        <cylinderGeometry args={[0.0022, 0.0022, 0.1, 8]} /><meshStandardMaterial {...frame} />
+      </mesh>
+    </group>
+  );
+}
+
+function AvatarModel({ chaos, activeSection, mouseRef, dragRef, onSleepChange, onEgg, talking, controlRef }) {
   const groupRef = useRef();
   const baseRot = useRef(null);
   const blink = useRef({ next: 2.5, meshes: [] });
+  const anim = useRef({ actions: null, mixer: null, ready: false, current: null, busy: false });
+  const sectionRef = useRef(activeSection);
+  const chaosSmooth = useRef(0);
+  const eggUntil = useRef(0);
+  const clicks = useRef(0);
+  const drowsy = useRef(0);
+  const smooth = useRef({ hx: 0, hy: 0 });
+  const sleeping = useRef(false);
+  const introDone = useRef(false);
+  const night = useMemo(() => { const h = new Date().getHours(); return h >= 23 || h < 6; }, []);
   const { scene } = useGLTF(AVATAR_URL);
 
   const bones = useMemo(() => ({
     head: scene.getObjectByName("Head"),
     neck: scene.getObjectByName("Neck"),
-    spine: scene.getObjectByName("Spine"),
+    eyeL: scene.getObjectByName("LeftEye"),
+    eyeR: scene.getObjectByName("RightEye"),
+    armL: scene.getObjectByName("LeftArm"),
+    armR: scene.getObjectByName("RightArm"),
+    foreL: scene.getObjectByName("LeftForeArm"),
+    foreR: scene.getObjectByName("RightForeArm"),
+    spine: scene.getObjectByName("Spine2"),
   }), [scene]);
+
+  const playLoop = useCallback((name, fade = 0.5) => {
+    const a = anim.current;
+    if (!a.ready) return;
+    const next = a.actions[name];
+    if (!next || a.current === next) return;
+    next.reset().setLoop(THREE.LoopRepeat, Infinity);
+    next.fadeIn(fade).play();
+    if (a.current) a.current.fadeOut(fade);
+    a.current = next;
+  }, []);
+
+  const playOnce = useCallback((name, fade = 0.35) => {
+    const a = anim.current;
+    if (!a.ready || !a.actions[name]) return;
+    const next = a.actions[name];
+    a.busy = true;
+    next.reset().setLoop(THREE.LoopOnce, 1);
+    next.clampWhenFinished = true;
+    next.fadeIn(fade).play();
+    if (a.current && a.current !== next) a.current.fadeOut(fade);
+    a.current = next;
+  }, []);
+
+  const baseline = useCallback(() => (
+    eggUntil.current ? "dance" : SECTION_IDLE[sectionRef.current] || "idle"
+  ), []);
+
+  // Wire animation-driver callbacks (refs, so re-assigning every render is fine)
+  anim.current.onFinished = () => { anim.current.busy = false; anim.current.current = null; playLoop(baseline()); };
+  anim.current.onReady = () => {
+    if (!introDone.current) { introDone.current = true; playOnce("wave"); }
+    else playLoop(baseline());
+  };
+
+  // Section changes: wave at contact, otherwise swap idle variation
+  useEffect(() => {
+    const prev = sectionRef.current;
+    sectionRef.current = activeSection;
+    const a = anim.current;
+    if (!a.ready || eggUntil.current) return;
+    if (activeSection === "contact" && prev !== "contact") playOnce("wave");
+    else if (!a.busy) playLoop(baseline());
+  }, [activeSection, playLoop, playOnce, baseline]);
+
+  // Talking gesture while the speech bubble is typing
+  const talkAlt = useRef(false);
+  useEffect(() => {
+    const a = anim.current;
+    if (!a.ready || a.busy || eggUntil.current) return;
+    if (talking) { talkAlt.current = !talkAlt.current; playLoop(talkAlt.current ? "talk1" : "talk2", 0.35); }
+    else playLoop(baseline());
+  }, [talking, playLoop, baseline]);
+
+  // Page-wide reaction hook (hover highlights, theme toggle, …)
+  const reactCooldown = useRef(0);
+  useEffect(() => {
+    const onReact = (e) => {
+      const a = anim.current;
+      const now = performance.now();
+      if (!a.ready || a.busy || eggUntil.current || now < reactCooldown.current) return;
+      reactCooldown.current = now + 6000;
+      playOnce(e.detail, 0.3);
+    };
+    window.addEventListener("avatar-react", onReact);
+    return () => window.removeEventListener("avatar-react", onReact);
+  }, [playOnce]);
+
+  // Imperative handle for the guided tour
+  useEffect(() => {
+    if (controlRef) controlRef.current = { playOnce, playLoop };
+  }, [controlRef, playOnce, playLoop]);
 
   useEffect(() => {
     const blinkMeshes = [];
@@ -29,54 +209,116 @@ function AvatarModel({ chaos, activeSection }) {
       if (o.morphTargetDictionary && o.morphTargetDictionary.eyeBlinkLeft !== undefined) blinkMeshes.push(o);
     });
     blink.current.meshes = blinkMeshes;
-    const { head, neck, spine } = bones;
+    const { head, neck, eyeL, eyeR } = bones;
     baseRot.current = {
       hx: head?.rotation.x ?? 0, hy: head?.rotation.y ?? 0,
       nx: neck?.rotation.x ?? 0, ny: neck?.rotation.y ?? 0,
-      sy: spine?.rotation.y ?? 0,
+      lx: eyeL?.rotation.x ?? 0, ly: eyeL?.rotation.y ?? 0,
+      rx: eyeR?.rotation.x ?? 0, ry: eyeR?.rotation.y ?? 0,
     };
   }, [scene, bones]);
+
+  const handleClick = useCallback((e) => {
+    e.stopPropagation();
+    if (e.delta > 6) return; // it was a drag, not a click
+    const a = anim.current;
+    if (!a.ready) return;
+    clicks.current++;
+    if (clicks.current === 10) {
+      eggUntil.current = performance.now() + 8000;
+      a.busy = false;
+      playLoop("dance", 0.3);
+      onEgg?.();
+      return;
+    }
+    if (a.busy || eggUntil.current) return;
+    playOnce(CLICK_REACTIONS[clicks.current % CLICK_REACTIONS.length]);
+  }, [playLoop, playOnce, onEgg]);
 
   useFrame((state) => {
     const g = groupRef.current;
     if (!g) return;
     const t = state.clock.elapsedTime;
-    const ptr = state.pointer;
+    const ptr = mouseRef.current;
+    const drag = dragRef.current;
+    const a = anim.current;
 
-    // Floating + section-directed turn blended with cursor
+    // Easter-egg dance timeout
+    if (eggUntil.current && performance.now() > eggUntil.current) {
+      eggUntil.current = 0;
+      playLoop(baseline());
+    }
+
+
+
+    // Floating + section turn + cursor + drag spin
     g.position.y = Math.sin(t * 0.8) * 0.08;
-    const targetRotY = (SECTION_ROT[activeSection] || 0) + ptr.x * 0.25;
-    g.rotation.y += (targetRotY - g.rotation.y) * 0.06;
+    if (!drag.active) drag.offset *= 0.94;
+    const targetRotY = (SECTION_ROT[sectionRef.current] || 0) + ptr.x * 0.25 + drag.offset;
+    g.rotation.y += (targetRotY - g.rotation.y) * (drag.active ? 0.3 : 0.06);
 
-    // Head & neck follow the cursor on top of the idle animation
+    // Sleepy state: doze off after 30s without mouse movement (droopier at night)
+    const idleMs = Date.now() - ptr.t;
+    const isSleeping = idleMs > 30000;
+    if (isSleeping !== sleeping.current) { sleeping.current = isSleeping; onSleepChange?.(isSleeping); }
+    drowsy.current += ((isSleeping ? 0.7 : night ? 0.25 : 0) - drowsy.current) * 0.03;
+
+    // Head, neck & eyes follow the cursor. The mixer rewrites these bones every
+    // frame, so keep our own smoothed offsets and set rotations absolutely —
+    // cursor tracking takes priority over the clip's head motion.
     const base = baseRot.current;
     if (base) {
-      const { head, neck, spine } = bones;
+      const { head, neck, eyeL, eyeR } = bones;
+      const droop = drowsy.current * 0.25;
+      const s = smooth.current;
+      s.hx += (-ptr.y * 0.35 + droop - s.hx) * 0.1;
+      s.hy += (ptr.x * 0.45 - s.hy) * 0.1;
       if (head) {
-        head.rotation.x += (base.hx - ptr.y * 0.35 - head.rotation.x) * 0.12;
-        head.rotation.y += (base.hy + ptr.x * 0.45 - head.rotation.y) * 0.12;
+        head.rotation.x = base.hx + s.hx;
+        head.rotation.y = base.hy + s.hy;
       }
       if (neck) {
-        neck.rotation.x += (base.nx - ptr.y * 0.12 - neck.rotation.x) * 0.1;
-        neck.rotation.y += (base.ny + ptr.x * 0.18 - neck.rotation.y) * 0.1;
+        neck.rotation.x = base.nx + s.hx * 0.35;
+        neck.rotation.y = base.ny + s.hy * 0.4;
       }
-      if (spine) spine.rotation.y += (base.sy + ptr.x * 0.08 - spine.rotation.y) * 0.08;
+      const ex = Math.max(-0.25, Math.min(0.25, -ptr.y * 0.18));
+      const ey = Math.max(-0.3, Math.min(0.3, ptr.x * 0.28));
+      if (eyeL) { eyeL.rotation.x = base.lx + ex; eyeL.rotation.y = base.ly + ey; }
+      if (eyeR) { eyeR.rotation.x = base.rx + ex; eyeR.rotation.y = base.ry + ey; }
     }
 
-    // Procedural blink via eyeBlink morph targets (~every 2-5s)
+    // Blink (procedural) + drowsy eyelids
     const b = blink.current;
-    const dt = t - b.next;
-    if (dt > 0.24) {
-      b.next = t + 2 + Math.random() * 3;
-    } else if (dt > 0) {
-      const v = dt < 0.12 ? dt / 0.12 : 1 - (dt - 0.12) / 0.12;
-      for (const m of b.meshes) {
-        m.morphTargetInfluences[m.morphTargetDictionary.eyeBlinkLeft] = v;
-        m.morphTargetInfluences[m.morphTargetDictionary.eyeBlinkRight] = v;
-      }
+    const dtb = t - b.next;
+    let lid = 0;
+    if (dtb > 0.24) b.next = t + 2 + Math.random() * 3;
+    else if (dtb > 0) lid = dtb < 0.12 ? dtb / 0.12 : 1 - (dtb - 0.12) / 0.12;
+    lid = Math.max(lid, drowsy.current);
+    for (const m of b.meshes) {
+      m.morphTargetInfluences[m.morphTargetDictionary.eyeBlinkLeft] = lid;
+      m.morphTargetInfluences[m.morphTargetDictionary.eyeBlinkRight] = lid;
     }
 
-    // Gravity anomaly: glitch shake (skinned mesh can't explode like the old primitive head)
+    // Zero-g ragdoll: arms drift and flail during the gravity anomaly.
+    // Offsets add on top of the mixer's pose each frame, so they fade to
+    // nothing and leave the idle animation untouched when calm.
+    const cf = chaosSmooth.current += (Math.min(chaos, 1) - chaosSmooth.current) * 0.04;
+    if (cf > 0.01) {
+      const { armL, armR, foreL, foreR, spine } = bones;
+      if (armL) {
+        armL.rotation.z += (1.3 + Math.cos(t * 1.3) * 0.55) * cf;
+        armL.rotation.x += Math.sin(t * 1.7) * 0.35 * cf;
+      }
+      if (armR) {
+        armR.rotation.z += -(1.3 + Math.cos(t * 1.6 + 1) * 0.55) * cf;
+        armR.rotation.x += Math.sin(t * 2.1 + 2) * 0.35 * cf;
+      }
+      if (foreL) foreL.rotation.x += Math.sin(t * 2.3 + 1) * 0.3 * cf;
+      if (foreR) foreR.rotation.x += Math.sin(t * 2.7 + 3) * 0.3 * cf;
+      if (spine) spine.rotation.z += Math.sin(t * 1.1) * 0.1 * cf;
+    }
+
+    // Glitch shake during anomaly
     if (chaos > 0.02) {
       g.position.x = (Math.random() - 0.5) * chaos * 0.22;
       g.position.z = (Math.random() - 0.5) * chaos * 0.12;
@@ -88,11 +330,16 @@ function AvatarModel({ chaos, activeSection }) {
 
   return (
     <group ref={groupRef}>
-      <primitive object={scene} position={[0, -5.5, 0]} scale={3.6} />
+      <primitive object={scene} position={[0, -5.5, 0]} scale={3.6} onClick={handleClick} />
+      {bones.head && createPortal3D(<Glasses />, bones.head)}
+      <Suspense fallback={null}>
+        <AnimDriver scene={scene} api={anim} />
+      </Suspense>
     </group>
   );
 }
 useGLTF.preload(AVATAR_URL);
+useGLTF.preload(ANIM_URL);
 
 function Orbits({ chaos }) {
   const ring1 = useRef(); const ring2 = useRef();
@@ -132,27 +379,282 @@ function AvatarLoader() {
   );
 }
 
+function TypeLine({ text, onDone }) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    setN(0);
+    const iv = setInterval(() => setN((v) => {
+      if (v >= text.length) { clearInterval(iv); return v; }
+      return v + 1;
+    }), 26);
+    return () => clearInterval(iv);
+  }, [text]);
+  useEffect(() => { if (n >= text.length) onDone?.(); }, [n, text, onDone]);
+  return <span>{"// "}{text.slice(0, n)}<span style={{ opacity: 0.6 }}>▌</span></span>;
+}
+
 function AvatarCanvas({ chaos, activeSection }) {
+  const slotRef = useRef();
+  const wrapRef = useRef();
+  const mouseRef = useRef({ x: 0, y: 0, t: Date.now() });
+  const dragRef = useRef({ active: false, offset: 0, lastX: 0 });
+  const control = useRef({});
+  const [mini, setMini] = useState(false);
+  const [grabbing, setGrabbing] = useState(false);
+  const [bubbleOverride, setBubbleOverride] = useState(null);
+  const [typing, setTyping] = useState(false);
+  const [tourIdx, setTourIdx] = useState(null);
+  const [askMode, setAskMode] = useState(false);
+  const [askText, setAskText] = useState("");
+  const [voiceOn, setVoiceOn] = useState(() => { try { return localStorage.getItem("ot-voice") === "on"; } catch { return false; } });
+  const miniRef = useRef(false);
+  const morphUntil = useRef(0);
+  const sayTimer = useRef(null);
+  const tourRef = useRef(null);
+  const stepDeadline = useRef(Infinity);
+  const animAt = useRef(null);
+  const glideTo = useRef(null);
+
+  const touring = tourIdx !== null;
+  const bubbleText = bubbleOverride ?? SECTION_LINES[activeSection] ?? SECTION_LINES.home;
+  useEffect(() => { setTyping(true); }, [bubbleText]);
+  const onTypeDone = useCallback(() => setTyping(false), []);
+
+  // Global cursor tracking (so he watches the mouse anywhere on the page)
+  useEffect(() => {
+    const onMove = (e) => {
+      mouseRef.current.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouseRef.current.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      mouseRef.current.t = Date.now();
+    };
+    const onDrag = (e) => {
+      const d = dragRef.current;
+      if (!d.active) return;
+      d.offset += (e.clientX - d.lastX) * 0.012;
+      d.lastX = e.clientX;
+    };
+    const onUp = () => { dragRef.current.active = false; setGrabbing(false); };
+    const onSay = (e) => {
+      setBubbleOverride(e.detail);
+      clearTimeout(sayTimer.current);
+      sayTimer.current = setTimeout(() => setBubbleOverride((cur) => (cur === e.detail ? null : cur)), 6000);
+    };
+    const cancelGlide = () => { glideTo.current = null; };
+    window.addEventListener("wheel", cancelGlide, { passive: true });
+    window.addEventListener("touchmove", cancelGlide, { passive: true });
+    window.addEventListener("pointermove", onMove, { passive: true });
+    window.addEventListener("pointermove", onDrag, { passive: true });
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("avatar-say", onSay);
+    return () => {
+      window.removeEventListener("wheel", cancelGlide);
+      window.removeEventListener("touchmove", cancelGlide);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointermove", onDrag);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("avatar-say", onSay);
+    };
+  }, []);
+
+  // Companion mode: the canvas lives in a fixed portal that either tracks the
+  // hero slot or flies to the bottom-left corner once you scroll past the hero.
+  useEffect(() => {
+    let raf;
+    const tick = () => {
+      const el = wrapRef.current, slot = slotRef.current;
+      if (el && slot) {
+        const shouldMini = window.scrollY > window.innerHeight * 0.85;
+        if (shouldMini !== miniRef.current) {
+          miniRef.current = shouldMini;
+          setMini(shouldMini);
+          el.style.transition = "left .5s cubic-bezier(.5,0,.2,1), top .5s cubic-bezier(.5,0,.2,1), width .5s cubic-bezier(.5,0,.2,1), height .5s cubic-bezier(.5,0,.2,1)";
+          morphUntil.current = performance.now() + 550;
+        } else if (performance.now() > morphUntil.current && el.style.transition !== "none") {
+          el.style.transition = "none";
+        }
+        if (glideTo.current !== null) {
+          const cur = window.scrollY;
+          const d = glideTo.current - cur;
+          if (Math.abs(d) > 2) window.scrollTo(0, cur + d * 0.06);
+          else glideTo.current = null;
+        }
+        if (tourRef.current !== null) {
+          mouseRef.current.t = Date.now(); // keep him awake while narrating
+          const now = performance.now();
+          if (animAt.current !== null && now > animAt.current) {
+            animAt.current = null;
+            control.current.playOnce?.(TOUR_STEPS[tourRef.current]?.anim);
+          }
+          if (now > stepDeadline.current) {
+            stepDeadline.current = Infinity;
+            setTourIdx((i) => (i === null ? null : i + 1));
+          }
+        }
+        if (performance.now() > morphUntil.current || miniRef.current) {
+          if (miniRef.current) {
+            el.style.left = "18px";
+            el.style.top = (window.innerHeight - 196) + "px";
+            el.style.width = "150px"; el.style.height = "178px";
+          } else {
+            const r = slot.getBoundingClientRect();
+            el.style.left = r.left + "px"; el.style.top = r.top + "px";
+            el.style.width = r.width + "px"; el.style.height = r.height + "px";
+          }
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  // Guided tour: each step scrolls to its section and narrates; the rAF tick
+  // above advances steps via deadlines (long setTimeouts can be throttled).
+  useEffect(() => {
+    tourRef.current = tourIdx;
+    if (tourIdx === null) { stepDeadline.current = Infinity; animAt.current = null; return; }
+    if (tourIdx >= TOUR_STEPS.length) {
+      setTourIdx(null);
+      setBubbleOverride(null);
+      glideTo.current = 0;
+      return;
+    }
+    const step = TOUR_STEPS[tourIdx];
+    const el = document.getElementById(step.id);
+    if (el) glideTo.current = el.getBoundingClientRect().top + window.scrollY;
+    setBubbleOverride(step.line);
+    animAt.current = performance.now() + 700;
+    stepDeadline.current = performance.now() + 2800 + step.line.length * 60;
+  }, [tourIdx]);
+
+  const startTour = () => {
+    if (touring) {
+      setTourIdx(null); setBubbleOverride(null);
+      try { window.speechSynthesis?.cancel(); } catch {}
+      return;
+    }
+    setAskMode(false);
+    try { if (localStorage.getItem("ot-voice") !== "off") setVoiceOn(true); } catch {}
+    setTourIdx(0);
+  };
+
+  const toggleVoice = () => {
+    setVoiceOn((v) => {
+      const next = !v;
+      try { localStorage.setItem("ot-voice", next ? "on" : "off"); } catch {}
+      if (!next) { try { window.speechSynthesis?.cancel(); } catch {} }
+      return next;
+    });
+  };
+
+  // Voice: read the bubble aloud (browser speech synthesis, no network)
+  useEffect(() => {
+    if (!voiceOn || !bubbleText || !window.speechSynthesis) return;
+    try {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(bubbleText.replace(/[^\p{L}\p{N}\p{P}\s']/gu, " "));
+      u.rate = 1.04;
+      window.speechSynthesis.speak(u);
+    } catch {}
+  }, [bubbleText, voiceOn]);
+
+  const submitAsk = () => {
+    const q = askText.trim();
+    setAskMode(false); setAskText("");
+    if (!q) return;
+    avatarSay(answerFor(q));
+  };
+
+  const onEgg = useCallback(() => {
+    setBubbleOverride("dance mode unlocked 🕺");
+    setTimeout(() => setBubbleOverride(null), 8000);
+  }, []);
+  const onSleepChange = useCallback((s) => {
+    if (miniRef.current && s) return;
+    setBubbleOverride((cur) => (s ? "zzz… move the mouse to wake me" : (cur?.startsWith("zzz") ? null : cur)));
+  }, []);
+
+  const mono = "'Space Mono', monospace";
+  const btnStyle = { fontFamily: mono, fontSize: 9, letterSpacing: "0.15em", color: "#00e5ff", background: "rgba(10,14,28,0.75)", border: "1px solid rgba(0,229,255,0.25)", borderRadius: 4, padding: "5px 9px", cursor: "pointer", backdropFilter: "blur(10px)" };
+
   return (
-    <div style={{ position: 'relative', width: 400, height: 450, flexShrink: 0 }}>
-      <Canvas camera={{ position: [0, -0.2, 7.0], fov: 34 }} dpr={[1, 2]} gl={{ alpha: true, antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.15 }} style={{ width: '100%', height: '100%', cursor: 'grab' }}>
-        <ambientLight intensity={0.6} />
-        <hemisphereLight skyColor="#fff8ee" groundColor="#2a1206" intensity={0.5} />
-        <directionalLight position={[-2.5, 4, 5]} intensity={1.7} />
-        <directionalLight position={[3, 0.5, 4]} intensity={0.6} color="#ffddb0" />
-        <directionalLight position={[0, 2, -4]} intensity={0.9} color="#7c4dff" />
-        <Suspense fallback={<AvatarLoader />}>
-          <AvatarModel chaos={chaos} activeSection={activeSection} />
-        </Suspense>
-        <Orbits chaos={chaos} />
-      </Canvas>
-      <div style={{ position: 'absolute', top: 12, right: 12, fontFamily: "'Space Mono', monospace", fontSize: 9, color: '#7c4dff', opacity: 0.4, letterSpacing: '0.15em', textAlign: 'right' }}>
-        ID:OT-007<br/>STATUS:ACTIVE
-      </div>
-      <div style={{ position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', fontFamily: "'Space Mono', monospace", fontSize: 9, letterSpacing: '0.2em', textTransform: 'uppercase', color: '#00e5ff', background: 'rgba(10,10,15,0.7)', border: '1px solid rgba(0,229,255,0.2)', padding: '4px 12px', backdropFilter: 'blur(10px)', display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ width: 5, height: 5, background: chaos > 0.1 ? '#ff4081' : '#0f6', borderRadius: '50%', boxShadow: `0 0 6px ${chaos > 0.1 ? '#ff4081' : '#0f6'}` }} />
-        {chaos > 0.1 ? 'GRAVITY ANOMALY' : 'SYSTEMS NOMINAL'}
-      </div>
+    <div ref={slotRef} className="avatar-slot" style={{ position: "relative", width: 400, height: 450, flexShrink: 0 }}>
+      {createPortal(
+        <div
+          ref={wrapRef}
+          onPointerDown={(e) => { dragRef.current.active = true; dragRef.current.lastX = e.clientX; setGrabbing(true); }}
+          style={{ position: "fixed", left: 0, top: 0, width: 400, height: 450, zIndex: 50, cursor: grabbing ? "grabbing" : "grab", touchAction: "pan-y" }}
+        >
+          <div style={{ position: "absolute", inset: 0, borderRadius: mini ? 14 : 0, overflow: "hidden", border: mini ? "1px solid rgba(0,229,255,0.25)" : "1px solid transparent", background: mini ? "rgba(10,14,28,0.55)" : "transparent", backdropFilter: mini ? "blur(10px)" : "none" }}>
+            <Canvas camera={{ position: [0, -0.2, 7.0], fov: 34 }} dpr={[1, 2]} gl={{ alpha: true, antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.15 }} style={{ width: "100%", height: "100%" }}>
+              <ambientLight intensity={0.6} />
+              <hemisphereLight skyColor="#fff8ee" groundColor="#2a1206" intensity={0.5} />
+              <directionalLight position={[-2.5, 4, 5]} intensity={1.7} />
+              <directionalLight position={[3, 0.5, 4]} intensity={0.6} color="#ffddb0" />
+              <directionalLight position={[0, 2, -4]} intensity={0.9} color="#7c4dff" />
+              <Suspense fallback={<AvatarLoader />}>
+                <AvatarModel chaos={chaos} activeSection={activeSection} mouseRef={mouseRef} dragRef={dragRef} onSleepChange={onSleepChange} onEgg={onEgg} talking={typing && !askMode} controlRef={control} />
+              </Suspense>
+              <Orbits chaos={chaos} />
+            </Canvas>
+          </div>
+
+          {/* Speech bubble — clickable to ask a question; floats above the widget in mini mode */}
+          {(!mini || touring) && (
+            <div
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={() => { if (!touring && !askMode) setAskMode(true); }}
+              style={{ position: "absolute", ...(mini ? { bottom: "100%", left: 0, marginBottom: 40, width: 230 } : { top: 14, left: 14, maxWidth: 240 }), fontFamily: mono, fontSize: 10, lineHeight: 1.6, color: "#00e5ff", background: "rgba(10,14,28,0.8)", border: "1px solid rgba(0,229,255,0.25)", borderRadius: "8px 8px 8px 0", padding: "6px 10px", backdropFilter: "blur(10px)", cursor: touring ? "default" : "pointer" }}
+            >
+              {askMode ? (
+                <input
+                  autoFocus
+                  value={askText}
+                  onChange={(e) => setAskText(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") submitAsk(); if (e.key === "Escape") { setAskMode(false); setAskText(""); } }}
+                  onBlur={() => { setAskMode(false); setAskText(""); }}
+                  placeholder="ask me anything…"
+                  style={{ width: "100%", background: "transparent", border: "none", outline: "none", color: "#00e5ff", fontFamily: mono, fontSize: 10 }}
+                />
+              ) : (
+                <>
+                  <TypeLine key={bubbleText} text={bubbleText} onDone={onTypeDone} />
+                  {!touring && !bubbleOverride && (
+                    <div style={{ fontSize: 8, opacity: 0.45, marginTop: 2 }}>click to ask me something</div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Tour + voice controls */}
+          {(!mini || touring) && (
+            <div onPointerDown={(e) => e.stopPropagation()} style={{ position: "absolute", ...(mini ? { bottom: "100%", left: 0, marginBottom: 8 } : { bottom: 14, right: 12 }), display: "flex", gap: 6 }}>
+              <button onClick={startTour} style={{ ...btnStyle, color: touring ? "#ff4081" : "#00e5ff", borderColor: touring ? "rgba(255,64,129,0.35)" : "rgba(0,229,255,0.25)" }}>
+                {touring ? "■ STOP" : "▶ TOUR"}
+              </button>
+              {!mini && (
+                <button onClick={toggleVoice} title={voiceOn ? "mute voice" : "enable voice"} style={{ ...btnStyle, opacity: voiceOn ? 1 : 0.55 }}>
+                  {voiceOn ? "🔊" : "🔇"}
+                </button>
+              )}
+            </div>
+          )}
+
+          {!mini && (
+            <>
+              <div style={{ position: "absolute", top: 12, right: 12, fontFamily: mono, fontSize: 9, color: "#7c4dff", opacity: 0.4, letterSpacing: "0.15em", textAlign: "right", pointerEvents: "none" }}>
+                ID:OT-007<br />STATUS:ACTIVE
+              </div>
+              <div style={{ position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)", fontFamily: mono, fontSize: 9, letterSpacing: "0.2em", textTransform: "uppercase", color: "#00e5ff", background: "rgba(10,14,28,0.7)", border: "1px solid rgba(0,229,255,0.2)", padding: "4px 12px", backdropFilter: "blur(10px)", display: "flex", alignItems: "center", gap: 6, pointerEvents: "none", whiteSpace: "nowrap" }}>
+                <span style={{ width: 5, height: 5, background: chaos > 0.1 ? "#ff4081" : bubbleOverride?.startsWith("zzz") ? "#eab308" : "#0f6", borderRadius: "50%", boxShadow: `0 0 6px ${chaos > 0.1 ? "#ff4081" : bubbleOverride?.startsWith("zzz") ? "#eab308" : "#0f6"}` }} />
+                {chaos > 0.1 ? "GRAVITY ANOMALY" : bubbleOverride?.startsWith("zzz") ? "STANDBY MODE" : touring ? "TOUR MODE" : "SYSTEMS NOMINAL"}
+              </div>
+            </>
+          )}
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
@@ -525,7 +1027,7 @@ function FloatingDebris({ scrollY, chaos }) {
 }
 
 // ===== ANTI-GRAVITY ELEMENT WRAPPER =====
-function AntiGravEl({ children, index, scrollY, chaos, mousePos, style, className, onClick }) {
+function AntiGravEl({ children, index, scrollY, chaos, mousePos, style, className, onClick, onMouseEnter, onMouseLeave }) {
   const elRef = useRef(null);
   const physicsRef = useRef({
     offsetX: 0, offsetY: 0, rotation: 0,
@@ -571,7 +1073,7 @@ function AntiGravEl({ children, index, scrollY, chaos, mousePos, style, classNam
   }, [chaos > 0.05, getTransform]);
 
   return (
-    <div ref={elRef} className={className} onClick={onClick}
+    <div ref={elRef} className={className} onClick={onClick} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}
       style={{ ...style, ...dynStyle, willChange: chaos > 0.05 ? 'transform' : 'auto' }}>
       {children}
     </div>
@@ -579,7 +1081,7 @@ function AntiGravEl({ children, index, scrollY, chaos, mousePos, style, classNam
 }
 
 // ===== EXPLODING TEXT =====
-function ExplodingText({ text, tag: Tag = 'span', chaos, style }) {
+function ExplodingText({ text, tag: Tag = 'span', chaos, style, className }) {
   const letters = text.split('');
   const offsets = useRef(letters.map(() => ({
     x: (Math.random() - 0.5) * 800, y: -(Math.random() * 600 + 200), r: (Math.random() - 0.5) * 180, delay: Math.random() * 0.3,
@@ -588,7 +1090,7 @@ function ExplodingText({ text, tag: Tag = 'span', chaos, style }) {
   const letterGradient = (background && WebkitBackgroundClip) ? { background, WebkitBackgroundClip, WebkitTextFillColor } : {};
 
   return (
-    <Tag style={{ ...parentStyle, display: 'inline-block', whiteSpace: 'pre-wrap' }}>
+    <Tag className={className} style={{ ...parentStyle, display: 'inline-block', whiteSpace: 'pre-wrap' }}>
       {letters.map((l, i) => {
         const o = offsets.current[i]; const intensity = Math.min(chaos, 1);
         return (
@@ -747,7 +1249,7 @@ function BackgroundCanvas({ chaos }) {
 function GravityHUD({ chaos, onToggle, gravityOff }) {
   return (
     <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 200, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
-      <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 10, letterSpacing: '0.15em', color: gravityOff ? '#ff4081' : '#00e5ff', background: 'rgba(10,10,15,0.8)', border: `1px solid ${gravityOff ? '#ff408140' : '#00e5ff40'}`, padding: '6px 12px', backdropFilter: 'blur(10px)', borderRadius: 4 }}>
+      <div style={{ fontFamily: "'Space Mono', monospace", fontSize: 10, letterSpacing: '0.15em', color: gravityOff ? '#ff4081' : '#00e5ff', background: 'rgba(10,14,28,0.8)', border: `1px solid ${gravityOff ? '#ff408140' : '#00e5ff40'}`, padding: '6px 12px', backdropFilter: 'blur(10px)', borderRadius: 4 }}>
         GRAVITY: {gravityOff ? 'OFF' : 'ON'} | CHAOS: {Math.round(chaos * 100)}%
       </div>
       <button onClick={onToggle} style={{ fontFamily: "'Space Mono', monospace", fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '12px 24px', cursor: 'pointer', background: gravityOff ? 'linear-gradient(135deg, #ff4081, #ff6e40)' : 'linear-gradient(135deg, #00e5ff, #7c4dff)', border: 'none', color: '#0a0a0f', fontWeight: 700, borderRadius: 4, boxShadow: gravityOff ? '0 0 30px rgba(255,64,129,0.4), 0 0 60px rgba(255,64,129,0.15)' : '0 0 30px rgba(0,229,255,0.3)', transition: 'all 0.4s', display: 'flex', alignItems: 'center', gap: 8, animation: gravityOff ? 'pulse 1s ease infinite' : 'none' }}>
@@ -763,7 +1265,7 @@ function ProjectModal({ project, onClose }) {
   useEffect(() => { document.body.style.overflow = 'hidden'; return () => { document.body.style.overflow = ''; }; }, []);
   return (
     <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:1000, background:'rgba(0,0,0,0.88)', backdropFilter:'blur(25px)', display:'flex', alignItems:'center', justifyContent:'center', padding:20, animation:'fadeIn 0.3s ease' }}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:'#12121a', border:'1px solid rgba(255,255,255,0.08)', borderRadius:12, maxWidth:800, width:'100%', maxHeight:'90vh', overflow:'auto' }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:'#101626', border:'1px solid rgba(140,160,255,0.12)', borderRadius:12, maxWidth:800, width:'100%', maxHeight:'90vh', overflow:'auto' }}>
         <div style={{ padding:'40px 40px 0', position:'relative' }}>
           <button onClick={onClose} style={{ position:'absolute', top:16, right:16, background:'rgba(255,255,255,0.06)', border:'none', color:'#e8e8f0', width:36, height:36, borderRadius:'50%', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}><X size={18}/></button>
           <div style={{ fontFamily:"'Space Mono',monospace", fontSize:11, letterSpacing:'0.2em', color:project.color, marginBottom:8 }}>PROJECT {project.idx}</div>
@@ -783,7 +1285,7 @@ function ProjectModal({ project, onClose }) {
         </div>
         <div style={{ padding:'0 40px', marginBottom:32 }}>
           <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:16, fontWeight:700, marginBottom:12, display:'flex', alignItems:'center', gap:8 }}><Terminal size={16} style={{ color:project.color }}/> Key Features</h3>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
+          <div className="grid-2" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
             {project.features.map((f,i)=>(
               <div key={i} style={{ padding:'12px 16px', background:'rgba(255,255,255,0.02)', borderLeft:`2px solid ${project.color}`, fontSize:13, color:'#c0c0d0' }}>{f}</div>
             ))}
@@ -796,7 +1298,7 @@ function ProjectModal({ project, onClose }) {
         {project.hasDemo && (
           <div style={{ padding:'0 40px', marginBottom:32 }}>
             <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:16, fontWeight:700, marginBottom:12, display:'flex', alignItems:'center', gap:8 }}><Zap size={16} style={{ color:project.color }}/> Live Demo — SOC Dashboard</h3>
-            <SOCDashboardDemo />
+            <div style={{ overflowX:'auto' }}><div style={{ minWidth:560 }}><SOCDashboardDemo /></div></div>
           </div>
         )}
         <div style={{ padding:'0 40px 40px' }}>
@@ -868,13 +1370,14 @@ export default function Portfolio() {
   const handleGravityToggle = () => { if (gravityOff) { setGravityOff(false); setChaos(0); } else { setGravityOff(true); } };
 
   const filtered = filter === 'all' ? projects : projects.filter(p => p.cat === filter);
-  const accent = '#00e5ff';
-  const accent2 = '#7c4dff';
-  const bg = dark ? '#0a0a0f' : '#f5f5f8';
-  const card = dark ? '#1a1a28' : '#ffffff';
+  const accent = dark ? '#00e5ff' : '#0091ad';
+  const accent2 = dark ? '#7c4dff' : '#6a3de8';
+  const bg = dark ? '#090c18' : '#f4f6fb';
+  const card = dark ? '#131a2e' : '#ffffff';
   const text = dark ? '#e8e8f0' : '#1a1a2e';
-  const textDim = dark ? '#8888a0' : '#666680';
-  const border = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.08)';
+  const textDim = dark ? '#8e96b0' : '#5b5e78';
+  const border = dark ? 'rgba(140,160,255,0.10)' : 'rgba(20,30,60,0.10)';
+  const cardShadow = dark ? 'none' : '0 2px 14px rgba(25,35,70,0.07)';
   const sLabel = { fontFamily:"'Space Mono',monospace", fontSize:11, letterSpacing:'0.35em', textTransform:'uppercase', color:accent, marginBottom:8, display:'flex', alignItems:'center', gap:12 };
 
   return (
@@ -889,10 +1392,48 @@ export default function Portfolio() {
         ::selection { background:#00e5ff33; color:#00e5ff }
         * { scrollbar-width:thin; scrollbar-color:#00e5ff33 transparent }
         html { scroll-behavior:smooth }
+        /* React drops -webkit-background-clip when the inline background updates (theme toggle) — enforce via CSS */
+        .grad-text, .grad-text span { -webkit-background-clip: text !important; background-clip: text !important; }
+        @media (max-width: 900px) {
+          .main-nav { padding: 12px 20px !important; }
+          .nav-sections { display: none !important; }
+          .hero { flex-direction: column !important; justify-content: center !important; padding: 110px 6vw 80px !important; }
+          .section-pad { padding: 80px 6vw !important; }
+          .grid-2 { grid-template-columns: 1fr !important; }
+          .grid-3 { grid-template-columns: 1fr 1fr !important; }
+          .grid-4 { grid-template-columns: repeat(2,1fr) !important; }
+          .skills-layout { grid-template-columns: 1fr !important; }
+        }
+        @media (max-width: 560px) {
+          .grid-3 { grid-template-columns: 1fr !important; }
+          .grid-4 { grid-template-columns: 1fr !important; }
+          .avatar-slot { width: 280px !important; height: 330px !important; }
+        }
       `}</style>
+
+      {/* Aurora backdrop: navy depth gradient with soft accent glows */}
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
+        background: dark
+          ? `radial-gradient(1100px 700px at 12% 8%, rgba(0,229,255,0.08), transparent 60%),
+             radial-gradient(1000px 800px at 88% 35%, rgba(124,77,255,0.10), transparent 60%),
+             radial-gradient(900px 700px at 50% 100%, rgba(255,64,129,0.05), transparent 65%),
+             linear-gradient(180deg, #0d1226 0%, #090c18 55%, #0a0e1d 100%)`
+          : `radial-gradient(1100px 700px at 12% 8%, rgba(0,145,173,0.06), transparent 60%),
+             radial-gradient(1000px 800px at 88% 35%, rgba(106,61,232,0.05), transparent 60%),
+             linear-gradient(180deg, #f7f8fc, #eef1f8)`,
+      }} />
 
       {dark && <BackgroundCanvas chaos={chaos} />}
       <FloatingDebris scrollY={scrollY} chaos={chaos} />
+
+      {dark && (
+        <>
+          {/* Film grain + vignette for depth (sit below content, above the backdrop) */}
+          <div style={{ position: 'fixed', inset: 0, zIndex: 2, pointerEvents: 'none', opacity: 0.05, backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E")` }} />
+          <div style={{ position: 'fixed', inset: 0, zIndex: 2, pointerEvents: 'none', background: 'radial-gradient(ellipse at 50% 45%, transparent 55%, rgba(3,5,12,0.45) 100%)' }} />
+        </>
+      )}
 
       <div style={{
         position: 'fixed', left: mousePos.x - (gravityOff ? 200 : 150), top: mousePos.y - (gravityOff ? 200 : 150),
@@ -909,46 +1450,48 @@ export default function Portfolio() {
       )}
 
       {/* NAV */}
-      <nav style={{
+      <nav className="main-nav" style={{
         position:'fixed', top:0, left:0, right:0, zIndex:100,
         padding:'16px 48px', display:'flex', justifyContent:'space-between', alignItems:'center',
-        background: dark ? 'rgba(10,10,15,0.7)' : 'rgba(245,245,248,0.8)',
+        background: dark ? 'rgba(10,14,28,0.7)' : 'rgba(247,248,252,0.85)',
         backdropFilter:'blur(20px)', borderBottom:`1px solid ${border}`,
         transition:'transform 0.4s ease', transform: navHidden ? 'translateY(-100%)' : 'translateY(0)',
         animation: chaos > 0.5 ? 'glitch 0.3s ease infinite' : 'none',
       }}>
-        <div style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:22, background:`linear-gradient(135deg,${accent},${accent2})`, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }}>OT.</div>
+        <div className="grad-text" style={{ fontFamily:"'Syne',sans-serif", fontWeight:800, fontSize:22, background:`linear-gradient(135deg,${accent},${accent2})`, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }}>OT.</div>
         <div style={{ display:'flex', gap:28, alignItems:'center' }}>
-          {['about','experience','projects','skills','certifications','contact'].map(s=>(
-            <a key={s} href={`#${s}`} style={{ fontFamily:"'Space Mono',monospace", fontSize:11, letterSpacing:'0.15em', textTransform:'uppercase', color:activeSection===s?accent:textDim, textDecoration:'none', padding:'4px 0', transition:'color 0.3s', borderBottom:activeSection===s?`1px solid ${accent}`:'1px solid transparent' }}>{s==='certifications'?'Certs':s}</a>
-          ))}
+          <div className="nav-sections" style={{ display:'flex', gap:28, alignItems:'center' }}>
+            {['about','experience','projects','skills','certifications','contact'].map(s=>(
+              <a key={s} href={`#${s}`} style={{ fontFamily:"'Space Mono',monospace", fontSize:11, letterSpacing:'0.15em', textTransform:'uppercase', color:activeSection===s?accent:textDim, textDecoration:'none', padding:'4px 0', transition:'color 0.3s', borderBottom:activeSection===s?`1px solid ${accent}`:'1px solid transparent' }}>{s==='certifications'?'Certs':s}</a>
+            ))}
+          </div>
           <Link to="/blog" style={{ fontFamily:"'Space Mono',monospace", fontSize:11, letterSpacing:'0.15em', textTransform:'uppercase', color:textDim, textDecoration:'none', padding:'4px 0', transition:'color 0.3s', borderBottom:'1px solid transparent' }}>Blog</Link>
-          <button onClick={()=>setDark(!dark)} style={{ background:'rgba(255,255,255,0.06)', border:`1px solid ${border}`, borderRadius:'50%', width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:text }}>{dark?<Sun size={15}/>:<Moon size={15}/>}</button>
+          <button onClick={()=>{ if(dark){ avatarReact('shield'); avatarSay('☀️ ouch — my eyes!'); } setDark(!dark); }} style={{ background:'rgba(255,255,255,0.06)', border:`1px solid ${border}`, borderRadius:'50%', width:36, height:36, display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:text }}>{dark?<Sun size={15}/>:<Moon size={15}/>}</button>
         </div>
       </nav>
 
       <div style={{ position:'relative', zIndex:5 }}>
 
         {/* ===== HERO ===== */}
-        <section id="home" style={{ minHeight:'100vh', display:'flex', alignItems:'center', padding:'0 8vw', position:'relative', gap:'2vw' }}>
+        <section id="home" className="hero" style={{ minHeight:'100vh', display:'flex', alignItems:'center', padding:'0 8vw', position:'relative', gap:'2vw' }}>
           <AntiGravEl index={0} scrollY={scrollY} chaos={chaos} mousePos={mousePos} style={{ flex:1, animation:'fadeIn 1s ease 0.3s both' }}>
             <div style={{ fontFamily:"'Space Mono',monospace", fontSize:13, letterSpacing:'0.3em', textTransform:'uppercase', color:accent, marginBottom:20 }}>
               // Computer Science · Adelaide University
             </div>
             <h1 style={{ fontFamily:"'Syne',sans-serif", fontSize:'clamp(2.8rem,5.5vw,5.5rem)', fontWeight:800, lineHeight:0.95, letterSpacing:'-0.04em', marginBottom:20 }}>
               <ExplodingText text="Omkar" chaos={chaos} style={{}} /><br />
-              <ExplodingText text="Thombre." chaos={chaos} style={{ background:`linear-gradient(135deg,${accent},${accent2},#ff4081)`, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }} />
+              <ExplodingText text="Thombre." chaos={chaos} className="grad-text" style={{ background:`linear-gradient(135deg,${accent},${accent2},#ff4081)`, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }} />
             </h1>
             <p style={{ fontSize:16, color:textDim, maxWidth:480, lineHeight:1.7, fontWeight:300, marginBottom:32 }}>
               Master's student & Teaching Assistant crafting secure systems, intelligent IoT solutions, and full-stack experiences.
             </p>
-            <div style={{ display:'flex', gap:12 }}>
-              <a href="#projects" style={{ fontFamily:"'Space Mono',monospace", fontSize:12, letterSpacing:'0.12em', textTransform:'uppercase', padding:'14px 28px', background:accent, color:'#0a0a0f', textDecoration:'none', fontWeight:700, display:'flex', alignItems:'center', gap:8 }}>View Projects <ArrowRight size={14}/></a>
+            <div style={{ display:'flex', gap:12, flexWrap:'wrap' }}>
+              <a href="#projects" style={{ fontFamily:"'Space Mono',monospace", fontSize:12, letterSpacing:'0.12em', textTransform:'uppercase', padding:'14px 28px', background:accent, color:dark?'#0a0a0f':'#ffffff', textDecoration:'none', fontWeight:700, display:'flex', alignItems:'center', gap:8 }}>View Projects <ArrowRight size={14}/></a>
               <a href="#contact" style={{ fontFamily:"'Space Mono',monospace", fontSize:12, letterSpacing:'0.12em', textTransform:'uppercase', padding:'14px 28px', border:`1px solid ${border}`, color:text, textDecoration:'none' }}>Get in Touch</a>
             </div>
           </AntiGravEl>
           <AntiGravEl index={100} scrollY={scrollY} chaos={chaos} mousePos={mousePos} style={{ animation:'fadeIn 1.2s ease 0.8s both', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <AvatarCanvas chaos={chaos} activeSection={activeSection} />
+            <AvatarCanvas chaos={gravityOff ? Math.max(chaos, 0.55) : chaos} activeSection={activeSection} />
           </AntiGravEl>
           <div style={{ position:'absolute', bottom:40, left:'50%', transform:'translateX(-50%)', display:'flex', flexDirection:'column', alignItems:'center', gap:8, animation:'fadeIn 1s ease 1.5s both' }}>
             <span style={{ fontFamily:"'Space Mono',monospace", fontSize:10, letterSpacing:'0.2em', color:textDim, textTransform:'uppercase' }}>Scroll</span>
@@ -957,7 +1500,7 @@ export default function Portfolio() {
         </section>
 
         {/* ===== ABOUT ===== */}
-        <section id="about" style={{ padding:'120px 8vw' }}>
+        <section id="about" className="section-pad" style={{ padding:'120px 8vw' }}>
           <AntiGravEl index={1} scrollY={scrollY} chaos={chaos} mousePos={mousePos}>
             <RevealSection>
               <div style={sLabel}><div style={{ width:40, height:1, background:accent }}/>01 — About</div>
@@ -967,7 +1510,7 @@ export default function Portfolio() {
               </h2>
             </RevealSection>
           </AntiGravEl>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:48 }}>
+          <div className="grid-2" style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:48 }}>
             <AntiGravEl index={2} scrollY={scrollY} chaos={chaos} mousePos={mousePos}>
               <RevealSection delay={0.15}>
                 <p style={{ fontSize:16, lineHeight:1.85, color:textDim, fontWeight:300, marginBottom:16 }}>I'm a Master of Computer Science student at Adelaide University with a strong foundation in software engineering, cybersecurity, and data science. Currently serving as a Teaching Assistant for Security Operations & Incident Response.</p>
@@ -977,7 +1520,7 @@ export default function Portfolio() {
             <RevealSection delay={0.3}>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
                 {[{n:'6.67',l:'CGPA / 7.0'},{n:'5+',l:'Major Projects'},{n:'95%',l:'Detection Accuracy'},{n:'60%',l:'Efficiency Gains'}].map((s,i)=>(
-                  <AntiGravEl key={i} index={3+i} scrollY={scrollY} chaos={chaos} mousePos={mousePos} style={{ background:card, border:`1px solid ${border}`, padding:24, borderRadius:4 }}>
+                  <AntiGravEl key={i} index={3+i} scrollY={scrollY} chaos={chaos} mousePos={mousePos} style={{ background:card, border:`1px solid ${border}`, boxShadow:cardShadow, padding:24, borderRadius:4 }}>
                     <div style={{ fontFamily:"'Syne',sans-serif", fontSize:32, fontWeight:800, color:accent, lineHeight:1 }}>{s.n}</div>
                     <div style={{ fontFamily:"'Space Mono',monospace", fontSize:10, letterSpacing:'0.15em', textTransform:'uppercase', color:textDim, marginTop:8 }}>{s.l}</div>
                   </AntiGravEl>
@@ -988,7 +1531,7 @@ export default function Portfolio() {
         </section>
 
         {/* ===== EXPERIENCE ===== */}
-        <section id="experience" style={{ padding:'120px 8vw' }}>
+        <section id="experience" className="section-pad" style={{ padding:'120px 8vw' }}>
           <AntiGravEl index={10} scrollY={scrollY} chaos={chaos} mousePos={mousePos}>
             <RevealSection>
               <div style={sLabel}><div style={{ width:40, height:1, background:accent }}/>02 — Experience</div>
@@ -1017,7 +1560,7 @@ export default function Portfolio() {
         </section>
 
         {/* ===== PROJECTS ===== */}
-        <section id="projects" style={{ padding:'120px 8vw' }}>
+        <section id="projects" className="section-pad" style={{ padding:'120px 8vw' }}>
           <AntiGravEl index={15} scrollY={scrollY} chaos={chaos} mousePos={mousePos}>
             <RevealSection>
               <div style={sLabel}><div style={{ width:40, height:1, background:accent }}/>03 — Projects</div>
@@ -1037,11 +1580,13 @@ export default function Portfolio() {
             </div>
           </RevealSection>
 
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:24 }}>
+          <div className="grid-2" style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:24 }}>
             {filtered.map((p,i)=>(
               <AntiGravEl key={p.id} index={16+i} scrollY={scrollY} chaos={chaos} mousePos={mousePos}
                 onClick={()=>setSelectedProject(p)}
-                style={{ background:card, border:`1px solid ${border}`, padding:32, borderRadius:8, position:'relative', overflow:'hidden', cursor:'pointer', transition:'transform 0.3s, box-shadow 0.3s', transformStyle:'preserve-3d' }}
+                onMouseEnter={(e)=>{ if(p.id===5) avatarReact('cheer'); const el=e.currentTarget; el.style.transition='transform 0.3s, box-shadow 0.3s, border-color 0.3s'; el.style.transform='translateY(-6px)'; el.style.boxShadow=`0 18px 50px ${p.color}26`; el.style.borderColor=`${p.color}55`; }}
+                onMouseLeave={(e)=>{ const el=e.currentTarget; el.style.transform=''; el.style.boxShadow=cardShadow; el.style.borderColor=''; }}
+                style={{ background:card, border:`1px solid ${border}`, boxShadow:cardShadow, padding:32, borderRadius:8, position:'relative', overflow:'hidden', cursor:'pointer', transition:'transform 0.3s, box-shadow 0.3s', transformStyle:'preserve-3d' }}
               >
                 <RevealSection delay={i*0.1}>
                   <div style={{ fontFamily:"'Space Mono',monospace", fontSize:11, color:p.color, letterSpacing:'0.2em', marginBottom:12 }}>// {p.idx} — {p.cat.toUpperCase()}{p.hasDemo && <span style={{ marginLeft:8, fontSize:9, background:`${p.color}20`, border:`1px solid ${p.color}40`, padding:'2px 6px', borderRadius:3 }}>LIVE DEMO</span>}</div>
@@ -1059,7 +1604,7 @@ export default function Portfolio() {
         </section>
 
         {/* ===== SKILLS ===== */}
-        <section id="skills" style={{ padding:'120px 8vw' }}>
+        <section id="skills" className="section-pad" style={{ padding:'120px 8vw' }}>
           <AntiGravEl index={25} scrollY={scrollY} chaos={chaos} mousePos={mousePos}>
             <RevealSection>
               <div style={sLabel}><div style={{ width:40, height:1, background:accent }}/>04 — Skills</div>
@@ -1068,10 +1613,10 @@ export default function Portfolio() {
               </h2>
             </RevealSection>
           </AntiGravEl>
-          <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:48 }}>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:20 }}>
+          <div className="skills-layout" style={{ display:'grid', gridTemplateColumns:'2fr 1fr', gap:48 }}>
+            <div className="grid-3" style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:20 }}>
               {Object.entries(skills).map(([group,items],gi)=>(
-                <AntiGravEl key={group} index={26+gi} scrollY={scrollY} chaos={chaos} mousePos={mousePos} style={{ background:card, border:`1px solid ${border}`, padding:28, borderRadius:8, height:'100%' }}>
+                <AntiGravEl key={group} index={26+gi} scrollY={scrollY} chaos={chaos} mousePos={mousePos} style={{ background:card, border:`1px solid ${border}`, boxShadow:cardShadow, padding:28, borderRadius:8, height:'100%' }}>
                   <RevealSection delay={gi*0.15}>
                     <div style={{ fontFamily:"'Syne',sans-serif", fontSize:15, fontWeight:700, marginBottom:20, display:'flex', alignItems:'center', gap:10 }}>
                       <div style={{ width:32, height:32, display:'flex', alignItems:'center', justifyContent:'center', background:`linear-gradient(135deg,${accent}18,${accent2}18)`, borderRadius:4 }}>
@@ -1088,7 +1633,7 @@ export default function Portfolio() {
                 </AntiGravEl>
               ))}
             </div>
-            <AntiGravEl index={30} scrollY={scrollY} chaos={chaos} mousePos={mousePos} style={{ background:card, border:`1px solid ${border}`, padding:28, borderRadius:8 }}>
+            <AntiGravEl index={30} scrollY={scrollY} chaos={chaos} mousePos={mousePos} onMouseEnter={()=>avatarReact('think')} style={{ background:card, border:`1px solid ${border}`, boxShadow:cardShadow, padding:28, borderRadius:8 }}>
               <RevealSection delay={0.4}>
                 <div style={{ fontFamily:"'Syne',sans-serif", fontSize:15, fontWeight:700, marginBottom:16 }}>Skill Radar</div>
                 <ResponsiveContainer width="100%" height={280}>
@@ -1104,7 +1649,7 @@ export default function Portfolio() {
         </section>
 
         {/* ===== CERTIFICATIONS ===== */}
-        <section id="certifications" style={{ padding:'120px 8vw' }}>
+        <section id="certifications" className="section-pad" style={{ padding:'120px 8vw' }}>
           <AntiGravEl index={35} scrollY={scrollY} chaos={chaos} mousePos={mousePos}>
             <RevealSection>
               <div style={sLabel}><div style={{ width:40, height:1, background:accent }}/>05 — Certifications</div>
@@ -1113,10 +1658,12 @@ export default function Portfolio() {
               </h2>
             </RevealSection>
           </AntiGravEl>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14 }}>
+          <div className="grid-4" style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14 }}>
             {certs.map((c,i)=>(
               <AntiGravEl key={i} index={36+i} scrollY={scrollY} chaos={chaos} mousePos={mousePos}
-                style={{ background:card, border:`1px solid ${border}`, padding:20, borderRadius:6, transition:'all 0.4s', cursor:'default', overflow:'hidden' }}>
+                onMouseEnter={(e)=>{ const el=e.currentTarget; el.style.transition='transform 0.3s, box-shadow 0.3s, border-color 0.3s'; el.style.transform='translateY(-4px)'; el.style.boxShadow=`0 12px 32px ${accent}14`; el.style.borderColor=`${accent}40`; }}
+                onMouseLeave={(e)=>{ const el=e.currentTarget; el.style.transform=''; el.style.boxShadow=cardShadow; el.style.borderColor=''; }}
+                style={{ background:card, border:`1px solid ${border}`, boxShadow:cardShadow, padding:20, borderRadius:6, transition:'all 0.4s', cursor:'default', overflow:'hidden' }}>
                 <RevealSection delay={(i%4)*0.08}>
                   <div style={{ fontFamily:"'Space Mono',monospace", fontSize:10, letterSpacing:'0.15em', textTransform:'uppercase', color:accent, marginBottom:6 }}>{c.issuer}</div>
                   <div style={{ fontFamily:"'Syne',sans-serif", fontSize:14, fontWeight:600, lineHeight:1.3, marginBottom:6 }}>{c.name}</div>
@@ -1128,13 +1675,13 @@ export default function Portfolio() {
         </section>
 
         {/* ===== CONTACT ===== */}
-        <section id="contact" style={{ padding:'120px 8vw', textAlign:'center' }}>
+        <section id="contact" className="section-pad" style={{ padding:'120px 8vw', textAlign:'center' }}>
           <AntiGravEl index={55} scrollY={scrollY} chaos={chaos} mousePos={mousePos}>
             <RevealSection>
               <div style={{ ...sLabel, justifyContent:'center' }}>06 — Contact</div>
               <h2 style={{ fontFamily:"'Syne',sans-serif", fontSize:'clamp(2.5rem,5vw,4.2rem)', fontWeight:800, letterSpacing:'-0.04em', marginBottom:16, lineHeight:1 }}>
                 <ExplodingText text="Let's " chaos={chaos} />
-                <ExplodingText text="connect." chaos={chaos} style={{ background:`linear-gradient(135deg,${accent},${accent2})`, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }} />
+                <ExplodingText text="connect." chaos={chaos} className="grad-text" style={{ background:`linear-gradient(135deg,${accent},${accent2})`, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent' }} />
               </h2>
               <p style={{ fontSize:16, color:textDim, maxWidth:500, margin:'0 auto 40px', lineHeight:1.7, fontWeight:300 }}>Currently open to opportunities in software development, cybersecurity, and data-driven engineering.</p>
               <div style={{ display:'flex', justifyContent:'center', gap:16, flexWrap:'wrap' }}>
@@ -1147,7 +1694,7 @@ export default function Portfolio() {
                   <AntiGravEl key={i} index={56+i} scrollY={scrollY} chaos={chaos} mousePos={mousePos}>
                     <a href={l.href} target={l.href.startsWith('http')?'_blank':undefined} rel="noreferrer"
                       style={{ fontFamily:"'Space Mono',monospace", fontSize:12, letterSpacing:'0.12em', textTransform:'uppercase', padding:'14px 28px', border:`1px solid ${border}`, color:textDim, textDecoration:'none', transition:'all 0.4s', display:'flex', alignItems:'center', gap:8, borderRadius:4 }}
-                      onMouseEnter={e=>{e.currentTarget.style.borderColor=accent;e.currentTarget.style.color=accent;e.currentTarget.style.transform='translateY(-3px)';e.currentTarget.style.boxShadow=`0 8px 30px ${accent}18`;}}
+                      onMouseEnter={e=>{e.currentTarget.style.borderColor=accent;e.currentTarget.style.color=accent;e.currentTarget.style.transform='translateY(-3px)';e.currentTarget.style.boxShadow=`0 8px 30px ${accent}18`;avatarReact('wave');}}
                       onMouseLeave={e=>{e.currentTarget.style.borderColor=border;e.currentTarget.style.color=textDim;e.currentTarget.style.transform='translateY(0)';e.currentTarget.style.boxShadow='none';}}>
                       <l.icon size={14}/> {l.label}
                     </a>
